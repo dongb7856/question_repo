@@ -1,0 +1,12 @@
+# 追加到 autoyt2 的 nginx.conf（server 块内、location / 之前）
+# 路径：/opt/autoyt2/nginx.conf
+# 改完后：cd /opt/autoyt2 && docker compose build nginx && docker compose up -d nginx
+
+    location /quiz/ {
+        proxy_pass http://question_repo_quiz:8765/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Prefix /quiz;
+        proxy_read_timeout 120;
+    }

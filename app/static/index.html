@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>专升本真题练习</title>
+  <link rel="stylesheet" href="static/style.css" />
+</head>
+<body>
+  <div class="page">
+    <header class="hero">
+      <div class="hero-text">
+        <p class="eyebrow">成人高考 · 法学类</p>
+        <h1>专升本真题练习</h1>
+        <p class="subtitle">政治 · 民法 · 随机抽题 · 即时对答案</p>
+      </div>
+    </header>
+
+    <section class="stats-section panel">
+      <div class="section-head">
+        <h2>题库概览</h2>
+        <span class="hint">含 bb 截图 OCR 补充题</span>
+      </div>
+      <div id="stats" class="stats-grid"></div>
+    </section>
+
+    <section class="panel setup">
+      <div class="section-head">
+        <h2>练习设置</h2>
+      </div>
+      <div class="controls">
+        <div class="field">
+          <label for="subject">科目</label>
+          <select id="subject">
+            <option value="">全部</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="year">年份</label>
+          <select id="year">
+            <option value="">全部</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="type">题型</label>
+          <select id="type">
+            <option value="">全部</option>
+            <option value="choice">选择题</option>
+            <option value="short_answer">简答题</option>
+            <option value="essay">论述题</option>
+            <option value="case_analysis">案例分析</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="source">来源</label>
+          <select id="source">
+            <option value="">全部</option>
+            <option value="web">网上下载</option>
+            <option value="bb">bb 截图</option>
+          </select>
+        </div>
+        <div class="field field-count">
+          <label for="count">题数</label>
+          <input id="count" type="number" min="1" max="50" value="10" />
+        </div>
+        <button id="startBtn" class="btn btn-primary btn-start">开始练习</button>
+      </div>
+
+      <div class="search-row">
+        <input id="keyword" type="search" placeholder="搜索题干关键词…" />
+        <button id="searchBtn" class="btn btn-secondary">搜索</button>
+      </div>
+    </section>
+
+    <main id="quiz" class="quiz hidden">
+      <div class="quiz-toolbar">
+        <div class="progress-wrap">
+          <div class="progress-meta">
+            <span id="progress">第 1 / 10 题</span>
+            <span id="progressPct">10%</span>
+          </div>
+          <div class="progress-bar">
+            <div id="progressFill" class="progress-fill"></div>
+          </div>
+        </div>
+        <button id="revealBtn" class="btn btn-secondary btn-sm">显示答案</button>
+      </div>
+
+      <article id="card" class="card"></article>
+
+      <div class="quiz-actions">
+        <button id="prevBtn" class="btn btn-secondary">← 上一题</button>
+        <button id="nextBtn" class="btn btn-primary">下一题 →</button>
+      </div>
+    </main>
+
+    <section id="results" class="results hidden">
+      <div class="section-head">
+        <h2>搜索结果</h2>
+      </div>
+      <div id="resultsList" class="results-list"></div>
+    </section>
+
+    <p id="message" class="message"></p>
+  </div>
+  <script src="static/app.js"></script>
+</body>
+</html>

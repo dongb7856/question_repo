@@ -1,0 +1,14 @@
+.env
+.env.local
+.env.production
+__pycache__/
+*.py[cod]
+.DS_Store
+.venv/
+venv/
+
+# bb 原始截图较大，仓库只保留 OCR 后的 .txt
+questions/**/bb/*.jpg
+questions/**/bb/*.jpeg
+questions/**/bb/*.png
+questions/**/bb/*.webp

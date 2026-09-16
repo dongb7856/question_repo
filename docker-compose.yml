@@ -1,0 +1,20 @@
+# 与 autoyt2 同机部署：加入 autoyt2 的 Docker 网络，由 autoyt2 nginx 反代 /quiz/
+services:
+  quiz:
+    build: .
+    container_name: question_repo_quiz
+    env_file:
+      - path: .env.production
+        required: false
+      - path: .env
+        required: false
+    expose:
+      - "8765"
+    restart: unless-stopped
+    networks:
+      - autoyt2
+
+networks:
+  autoyt2:
+    external: true
+    name: autoyt2_default

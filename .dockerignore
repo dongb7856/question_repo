@@ -1,0 +1,9 @@
+.git
+.env
+.env.local
+.env.production
+__pycache__
+*.pyc
+.DS_Store
+questions/**/bb/*.jpg
+questions/**/bb/*.png
