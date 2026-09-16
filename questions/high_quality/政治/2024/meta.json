@@ -1,0 +1,21 @@
+{
+  "subject": "政治",
+  "year": 2024,
+  "exam_type": "成人高考专升本",
+  "quality_grade": "A",
+  "quality_note": "选项+答案完整，推荐入库",
+  "source_id": "hbcj",
+  "source_url": "https://hbcj1.com/xiangqing?article_id=874",
+  "source_file": "874.html",
+  "metrics": {
+    "total_questions": 41,
+    "choice_count": 41,
+    "with_4_options": 32,
+    "with_answer": 33,
+    "score": 595,
+    "source_id": "hbcj",
+    "source_url": "https://hbcj1.com/xiangqing?article_id=874",
+    "source_file": "874.html",
+    "note": "含括号标注的选择题答案"
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "subject": "政治",
+  "year": 2022,
+  "exam_type": "成人高考专升本",
+  "quality_grade": "B",
+  "quality_note": "选项完整，主观题答案需补充",
+  "source_id": "aipta",
+  "source_url": "https://www.aipta.com/article/6435.html",
+  "source_file": "6435.html",
+  "metrics": {
+    "total_questions": 41,
+    "choice_count": 35,
+    "with_4_options": 35,
+    "with_answer": 0,
+    "score": 496,
+    "source_id": "aipta",
+    "source_url": "https://www.aipta.com/article/6435.html",
+    "source_file": "6435.html",
+    "note": ""
+  }
+}

@@ -11,6 +11,9 @@
   --success-bg: #ecfdf5;
   --success-text: #047857;
   --success-border: #a7f3d0;
+  --error-bg: #fef2f2;
+  --error-text: #b91c1c;
+  --error-border: #fecaca;
   --border: #e5e7eb;
   --shadow-sm: 0 1px 3px rgba(17, 24, 39, 0.06);
   --shadow-md: 0 8px 24px rgba(17, 24, 39, 0.08);
@@ -384,6 +387,41 @@ input:focus {
   background: var(--primary-soft);
 }
 
+.option.selectable {
+  cursor: pointer;
+}
+
+.option.selectable:hover:not(.disabled) {
+  border-color: var(--primary-border);
+  background: var(--primary-soft);
+}
+
+.option.correct {
+  background: var(--success-bg);
+  border-color: var(--success-border);
+}
+
+.option.correct .option-key {
+  background: var(--success-text);
+  border-color: var(--success-text);
+  color: #fff;
+}
+
+.option.incorrect {
+  background: var(--error-bg);
+  border-color: var(--error-border);
+}
+
+.option.incorrect .option-key {
+  background: var(--error-text);
+  border-color: var(--error-text);
+  color: #fff;
+}
+
+.option.disabled {
+  pointer-events: none;
+}
+
 .option-key {
   flex-shrink: 0;
   width: 28px;
@@ -418,6 +456,18 @@ input:focus {
   font-size: 0.92rem;
 }
 
+.answer.correct {
+  background: var(--success-bg);
+  border-color: var(--success-border);
+  color: var(--success-text);
+}
+
+.answer.incorrect {
+  background: var(--error-bg);
+  border-color: var(--error-border);
+  color: var(--error-text);
+}
+
 .answer-label {
   font-weight: 600;
   display: block;
@@ -425,6 +475,14 @@ input:focus {
   font-size: 0.8rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+}
+
+.explanation {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid currentColor;
+  opacity: 0.85;
+  font-size: 0.9rem;
 }
 
 .quiz-actions {

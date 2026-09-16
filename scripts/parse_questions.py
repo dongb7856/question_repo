@@ -35,10 +35,12 @@ QUESTION_START = re.compile(
     r"^(\d+)[、.．]\s*(.+)$"
 )
 OPTION_INLINE = re.compile(
-    r"([A-D])[．.、]\s*([^A-D．.、]+?)(?=\s*[A-D][．.、]|$)"
+    r"([A-D])[．.、]\s*([^A-D．.]+?)(?=\s+[A-D][．.、]|$)"
 )
 OPTION_LINE_AIPTA = re.compile(r"^([A-D])[．.、]\s*(.+)$")
+OPTION_LINE_BARE = re.compile(r"^([A-D])([^\s\.．、（(].+)$")
 OPTION_LINE_PAREN = re.compile(r"^[（(]([A-D])[）)]\s*(.+)$")
+ANSWER_TAG_LINE = re.compile(r"^【(?:正确)?答案】[:：]?\s*([A-D])\s*$")
 ANSWER_IN_STEM = re.compile(r"[（(]\s*([A-D])\s*[）)]\s*$")
 ANSWER_IN_STEM_LOOSE = re.compile(r"[（(]\s*([A-D])\s*[）)]")
 ANSWER_REF_BLOCK = re.compile(r"^【参考答案】[:：]?\s*$")
@@ -123,13 +125,31 @@ def detect_section_type(line: str) -> QuestionType | None:
     return None
 
 
+def parse_options_from_line(line: str) -> dict[str, str]:
+    """从单行解析一个或多个选项（支持 A．… B．… 同行排版）。"""
+    stripped = line.strip()
+    options: dict[str, str] = {}
+    for m in OPTION_INLINE.finditer(stripped):
+        options[m.group(1)] = m.group(2).strip()
+    if options:
+        return options
+    m = (
+        OPTION_LINE_AIPTA.match(stripped)
+        or OPTION_LINE_PAREN.match(stripped)
+        or OPTION_LINE_BARE.match(stripped)
+    )
+    if m:
+        return {m.group(1): m.group(2).strip()}
+    return {}
+
+
 def parse_options_from_lines(lines: list[str]) -> tuple[dict[str, str], list[str]]:
     options: dict[str, str] = {}
     remainder: list[str] = []
     for line in lines:
-        m = OPTION_LINE_AIPTA.match(line.strip()) or OPTION_LINE_PAREN.match(line.strip())
-        if m:
-            options[m.group(1)] = m.group(2).strip()
+        line_opts = parse_options_from_line(line)
+        if line_opts:
+            options.update(line_opts)
         else:
             remainder.append(line)
     return options, remainder
@@ -176,11 +196,13 @@ def parse_subjective_question(
     answer = None
     explanation = None
 
-    if "【参考答案】" in raw:
-        parts = re.split(r"【参考答案】[:：]?\s*", raw, maxsplit=1)
-        stem = parts[0].strip()
-        if len(parts) > 1:
-            answer = parts[1].strip()
+    for tag in ("【参考答案】", "【正确答案】"):
+        if tag in raw:
+            parts = re.split(rf"{re.escape(tag)}[:：]?\s*", raw, maxsplit=1)
+            stem = parts[0].strip()
+            if len(parts) > 1:
+                answer = parts[1].strip()
+            break
 
     return ParsedQuestion(
         number=number,
@@ -203,7 +225,21 @@ def parse_choice_question(
     stem_part, answer = extract_answer_from_stem(stem_part)
     stem_part, inline_opts = parse_inline_options(stem_part)
 
-    extra_opts, remainder = parse_options_from_lines(following_lines)
+    option_lines: list[str] = []
+    explanation: str | None = None
+    for line in following_lines:
+        stripped = line.strip()
+        am = ANSWER_TAG_LINE.match(stripped)
+        if am:
+            if answer is None:
+                answer = am.group(1)
+            continue
+        if stripped.startswith("【试题解析】"):
+            explanation = re.sub(r"^【试题解析】[:：]?\s*", "", stripped).strip()
+            continue
+        option_lines.append(line)
+
+    extra_opts, remainder = parse_options_from_lines(option_lines)
     options = {**inline_opts, **extra_opts}
 
     if remainder and not options:
@@ -222,6 +258,7 @@ def parse_choice_question(
         stem=stem_part,
         options=options or None,
         answer=answer,
+        explanation=explanation,
         raw_text="\n".join(raw_parts).strip(),
     )
 

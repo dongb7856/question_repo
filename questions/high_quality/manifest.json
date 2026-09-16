@@ -1,0 +1,182 @@
+{
+  "政治/2020": {
+    "status": "ok",
+    "quality_grade": "B",
+    "metrics": {
+      "total_questions": 46,
+      "choice_count": 40,
+      "with_4_options": 40,
+      "with_answer": 0,
+      "score": 566,
+      "source_id": "aipta",
+      "source_url": "https://www.aipta.com/article/586.html",
+      "source_file": "586.html",
+      "note": ""
+    }
+  },
+  "政治/2021": {
+    "status": "ok",
+    "quality_grade": "B",
+    "metrics": {
+      "total_questions": 41,
+      "choice_count": 34,
+      "with_4_options": 31,
+      "with_answer": 0,
+      "score": 444,
+      "source_id": "ah_edu",
+      "source_url": "http://www.ah-edu.com/beikao/10271.html",
+      "source_file": "10271.html",
+      "note": "安徽成考网完整回忆版"
+    }
+  },
+  "政治/2022": {
+    "status": "ok",
+    "quality_grade": "B",
+    "metrics": {
+      "total_questions": 41,
+      "choice_count": 35,
+      "with_4_options": 35,
+      "with_answer": 0,
+      "score": 496,
+      "source_id": "aipta",
+      "source_url": "https://www.aipta.com/article/6435.html",
+      "source_file": "6435.html",
+      "note": ""
+    }
+  },
+  "政治/2023": {
+    "status": "ok",
+    "quality_grade": "B",
+    "metrics": {
+      "total_questions": 41,
+      "choice_count": 35,
+      "with_4_options": 35,
+      "with_answer": 0,
+      "score": 496,
+      "source_id": "aipta",
+      "source_url": "https://www.aipta.com/article/9369.html",
+      "source_file": "9369.html",
+      "note": ""
+    }
+  },
+  "政治/2024": {
+    "status": "ok",
+    "quality_grade": "A",
+    "metrics": {
+      "total_questions": 41,
+      "choice_count": 41,
+      "with_4_options": 32,
+      "with_answer": 33,
+      "score": 595,
+      "source_id": "hbcj",
+      "source_url": "https://hbcj1.com/xiangqing?article_id=874",
+      "source_file": "874.html",
+      "note": "含括号标注的选择题答案"
+    }
+  },
+  "政治/2025": {
+    "status": "ok",
+    "quality_grade": "D",
+    "metrics": {
+      "total_questions": 9,
+      "choice_count": 5,
+      "with_4_options": 0,
+      "with_answer": 0,
+      "score": 9,
+      "source_id": "hqwx",
+      "source_url": "https://oss-hqwx-video.hqwx.com/免费-2025年成考专升本政治真题及答案解析_2877f4d0681cfe162eb7d5632337f6920e4dd172.pdf",
+      "source_file": "2025政治.pdf",
+      "note": ""
+    }
+  },
+  "民法/2020": {
+    "status": "ok",
+    "quality_grade": "B",
+    "metrics": {
+      "total_questions": 44,
+      "choice_count": 35,
+      "with_4_options": 35,
+      "with_answer": 0,
+      "score": 499,
+      "source_id": "aipta",
+      "source_url": "https://www.aipta.com/article/604.html",
+      "source_file": "604.html",
+      "note": ""
+    }
+  },
+  "民法/2021": {
+    "status": "ok",
+    "quality_grade": "B",
+    "metrics": {
+      "total_questions": 43,
+      "choice_count": 35,
+      "with_4_options": 35,
+      "with_answer": 0,
+      "score": 498,
+      "source_id": "aipta",
+      "source_url": "https://www.aipta.com/article/603.html",
+      "source_file": "603.html",
+      "note": ""
+    }
+  },
+  "民法/2022": {
+    "status": "ok",
+    "quality_grade": "B",
+    "metrics": {
+      "total_questions": 43,
+      "choice_count": 35,
+      "with_4_options": 35,
+      "with_answer": 0,
+      "score": 498,
+      "source_id": "aipta",
+      "source_url": "https://www.aipta.com/article/8979.html",
+      "source_file": "8979.html",
+      "note": ""
+    }
+  },
+  "民法/2023": {
+    "status": "ok",
+    "quality_grade": "B",
+    "metrics": {
+      "total_questions": 43,
+      "choice_count": 35,
+      "with_4_options": 35,
+      "with_answer": 0,
+      "score": 498,
+      "source_id": "aipta",
+      "source_url": "https://www.aipta.com/article/8980.html",
+      "source_file": "8980.html",
+      "note": ""
+    }
+  },
+  "民法/2024": {
+    "status": "ok",
+    "quality_grade": "B",
+    "metrics": {
+      "total_questions": 43,
+      "choice_count": 35,
+      "with_4_options": 35,
+      "with_answer": 0,
+      "score": 498,
+      "source_id": "aipta",
+      "source_url": "https://www.aipta.com/article/10129.html",
+      "source_file": "10129.html",
+      "note": ""
+    }
+  },
+  "民法/2025": {
+    "status": "ok",
+    "quality_grade": "D",
+    "metrics": {
+      "total_questions": 0,
+      "choice_count": 0,
+      "with_4_options": 0,
+      "with_answer": 0,
+      "score": 0,
+      "source_id": "gdck84",
+      "source_url": "https://www.gdck84.com/show-24-21655-1.html",
+      "source_file": "21655.html",
+      "note": "PNG 截图，需 OCR"
+    }
+  }
+}

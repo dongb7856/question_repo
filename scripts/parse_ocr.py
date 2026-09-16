@@ -10,6 +10,7 @@ from parse_questions import (
     ParsedQuestion,
     QuestionType,
     deduplicate_questions,
+    parse_options_from_line,
     parse_text_content,
 )
 
@@ -22,7 +23,6 @@ SUBJECTIVE_ANSWER = re.compile(
     re.S,
 )
 QUESTION_LINE = re.compile(r"^(\d+)[.、．]\s*(.+)$")
-OPTION_LINE = re.compile(r"^([A-D])[.．、]\s*(.+)$")
 SUBJECTIVE_HINT = re.compile(r"简述|试述|论述|简答|案例|请回答|什么是|如何理解|为什么|试论|辨析")
 IMAGE_MARKER = re.compile(r"^===== .+ =====$")
 STEM_TRAILING_ANSWER = re.compile(r"[（(]\s*([A-D])\s*[）)]\s*$")
@@ -117,9 +117,9 @@ def extract_question_candidates(text: str) -> dict[int, list[ParsedQuestion]]:
                 break
             if re.match(r"^\d+\.[【\[]?答案", nxt):
                 break
-            opt = OPTION_LINE.match(nxt)
-            if opt:
-                options[opt.group(1)] = opt.group(2).strip()
+            line_opts = parse_options_from_line(nxt)
+            if line_opts:
+                options.update(line_opts)
             else:
                 body.append(nxt)
             j += 1

@@ -10,6 +10,8 @@ const state = {
   questions: [],
   index: 0,
   answerVisible: false,
+  selectedAnswer: null,
+  answered: false,
 };
 
 const els = {
@@ -65,23 +67,97 @@ function updateProgress() {
   els.progressFill.style.width = `${pct}%`;
 }
 
+function parseOptions(raw) {
+  if (!raw) return null;
+  if (typeof raw === "string") {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+  return typeof raw === "object" ? raw : null;
+}
+
+function isChoiceQuestion(q) {
+  const options = parseOptions(q.options);
+  if (!options) return false;
+  const keys = Object.keys(options);
+  return keys.length >= 2 && keys.some((key) => /^[A-D]$/i.test(key));
+}
+
+function normalizeAnswer(raw) {
+  if (!raw) return null;
+  const match = String(raw).trim().match(/^([A-D])/i);
+  return match ? match[1].toUpperCase() : null;
+}
+
+function selectOption(key) {
+  if (state.answered) return;
+
+  const q = state.questions[state.index];
+  if (!isChoiceQuestion(q)) return;
+
+  state.selectedAnswer = key;
+  state.answered = true;
+
+  const correctKey = normalizeAnswer(q.answer);
+  const isCorrect = correctKey && key === correctKey;
+
+  els.card.querySelectorAll(".option").forEach((el) => {
+    const optionKey = el.dataset.key;
+    el.classList.add("disabled");
+    if (optionKey === key) {
+      el.classList.add(isCorrect ? "correct" : "incorrect");
+    } else if (!isCorrect && optionKey === correctKey) {
+      el.classList.add("correct");
+    }
+  });
+
+  const box = document.getElementById("answerBox");
+  if (!box) return;
+
+  box.classList.remove("hidden");
+
+  if (!correctKey) {
+    box.className = "answer";
+    box.innerHTML = `<span class="answer-label">提示</span>暂无标准答案，无法判定对错`;
+  } else if (isCorrect) {
+    box.className = "answer correct";
+    box.innerHTML = `<span class="answer-label">回答正确</span>✓ 你选择了 ${key}，回答正确！`;
+  } else {
+    box.className = "answer incorrect";
+    box.innerHTML = `<span class="answer-label">回答错误</span>✗ 你选择了 ${key}，正确答案是 ${correctKey}`;
+  }
+
+  if (q.explanation) {
+    box.innerHTML += `<div class="explanation">${escapeHtml(q.explanation)}</div>`;
+  }
+}
+
 function renderQuestion() {
   const q = state.questions[state.index];
   if (!q) return;
 
   state.answerVisible = false;
+  state.selectedAnswer = null;
+  state.answered = false;
   updateProgress();
+
+  const choice = isChoiceQuestion(q);
   els.revealBtn.textContent = "显示答案";
   els.revealBtn.disabled = false;
+  els.revealBtn.classList.toggle("hidden", choice);
 
-  const optionsHtml = q.options
-    ? Object.keys(q.options)
+  const options = parseOptions(q.options);
+  const optionsHtml = options
+    ? Object.keys(options)
         .sort()
         .map(
           (key) => `
-          <div class="option">
+          <div class="option${choice ? " selectable" : ""}" data-key="${key}"${choice ? ' role="button" tabindex="0"' : ""}>
             <span class="option-key">${key}</span>
-            <span class="option-text">${escapeHtml(q.options[key])}</span>
+            <span class="option-text">${escapeHtml(options[key])}</span>
           </div>`
         )
         .join("")
@@ -149,7 +225,7 @@ function escapeHtml(text) {
 }
 
 async function loadFilters() {
-  const subjects = await api("/api/subjects");
+  const subjects = await api("api/subjects");
   subjects.forEach((name) => {
     const opt = document.createElement("option");
     opt.value = name;
@@ -169,7 +245,7 @@ function filterParams() {
 async function refreshYears() {
   const params = filterParams();
   const qs = params.toString();
-  const years = await api(`/api/years${qs ? `?${qs}` : ""}`);
+  const years = await api(`api/years${qs ? `?${qs}` : ""}`);
   els.year.innerHTML = '<option value="">全部</option>';
   years.forEach((year) => {
     const opt = document.createElement("option");
@@ -182,7 +258,7 @@ async function refreshYears() {
 async function loadStats() {
   const params = filterParams();
   const qs = params.toString();
-  const stats = await api(`/api/stats${qs ? `?${qs}` : ""}`);
+  const stats = await api(`api/stats${qs ? `?${qs}` : ""}`);
   const grouped = {};
 
   for (const item of stats) {
@@ -222,7 +298,7 @@ async function startQuiz() {
   if (els.source.value) params.set("source", els.source.value);
 
   try {
-    const questions = await api(`/api/questions/random?${params}`);
+    const questions = await api(`api/questions/random?${params}`);
     state.questions = questions;
     state.index = 0;
     els.results.classList.add("hidden");
@@ -244,7 +320,7 @@ async function searchQuestions() {
   if (els.source.value) params.set("source", els.source.value);
 
   try {
-    const items = await api(`/api/questions/search?${params}`);
+    const items = await api(`api/questions/search?${params}`);
     renderResults(items);
     setMessage(`找到 ${items.length} 条结果`);
     els.results.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -257,6 +333,21 @@ async function onFilterChange() {
   await refreshYears();
   await loadStats();
 }
+
+els.card.addEventListener("click", (e) => {
+  const option = e.target.closest(".option.selectable:not(.disabled)");
+  if (!option?.dataset.key) return;
+  selectOption(option.dataset.key);
+});
+
+els.card.addEventListener("keydown", (e) => {
+  const option = e.target.closest(".option.selectable:not(.disabled)");
+  if (!option?.dataset.key) return;
+  if (e.key === "Enter" || e.key === " ") {
+    e.preventDefault();
+    selectOption(option.dataset.key);
+  }
+});
 
 els.subject.addEventListener("change", onFilterChange);
 els.source.addEventListener("change", onFilterChange);

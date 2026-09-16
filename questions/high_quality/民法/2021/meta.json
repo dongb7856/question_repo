@@ -1,0 +1,21 @@
+{
+  "subject": "民法",
+  "year": 2021,
+  "exam_type": "成人高考专升本",
+  "quality_grade": "B",
+  "quality_note": "选项完整，主观题答案需补充",
+  "source_id": "aipta",
+  "source_url": "https://www.aipta.com/article/603.html",
+  "source_file": "603.html",
+  "metrics": {
+    "total_questions": 43,
+    "choice_count": 35,
+    "with_4_options": 35,
+    "with_answer": 0,
+    "score": 498,
+    "source_id": "aipta",
+    "source_url": "https://www.aipta.com/article/603.html",
+    "source_file": "603.html",
+    "note": ""
+  }
+}

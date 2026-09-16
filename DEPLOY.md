@@ -153,4 +153,5 @@ curl -s http://127.0.0.1:8765/api/subjects   # 需临时映射端口测试时可
 | `/quiz/` 502 | `docker ps` 看 `question_repo_quiz` 是否 Up；是否已改 nginx 并 rebuild |
 | 数据库连接失败 | 检查 `.env.production` 的 RDS 外网地址与白名单 |
 | 页面无样式 | 强制刷新；确认访问 URL 带尾斜杠 `/quiz/` |
-| 题库为空 | 查看容器日志：`docker compose logs quiz`；手动 `docker compose exec quiz python3 scripts/import_questions.py` |
+| 题库为空 | 查看容器日志：`docker compose logs quiz`；手动 `docker compose exec quiz python3 scripts/import_pay_questions.py` |
+| 切换/重建题库 | 将爱真题付费文件放入 `questions/pay/`，执行 `python3 scripts/import_pay_questions.py`（会先跑 `001_clear_all_questions.sql` 清空旧题） |

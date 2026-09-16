@@ -1,0 +1,21 @@
+{
+  "subject": "政治",
+  "year": 2021,
+  "exam_type": "成人高考专升本",
+  "quality_grade": "B",
+  "quality_note": "选项完整，主观题答案需补充",
+  "source_id": "ah_edu",
+  "source_url": "http://www.ah-edu.com/beikao/10271.html",
+  "source_file": "10271.html",
+  "metrics": {
+    "total_questions": 41,
+    "choice_count": 34,
+    "with_4_options": 31,
+    "with_answer": 0,
+    "score": 444,
+    "source_id": "ah_edu",
+    "source_url": "http://www.ah-edu.com/beikao/10271.html",
+    "source_file": "10271.html",
+    "note": "安徽成考网完整回忆版"
+  }
+}

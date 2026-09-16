@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -23,7 +23,6 @@ ROOT_PATH = os.environ.get("ROOT_PATH", "").rstrip("/")
 app = FastAPI(
     title="专升本真题练习",
     version="1.0.0",
-    root_path=ROOT_PATH,
 )
 
 
@@ -34,14 +33,20 @@ def startup() -> None:
 
 
 def source_label(source_file: str) -> str:
-    return "bb 截图" if source_file.startswith("bb/") else "网上下载"
+    if source_file.startswith("pay/"):
+        return "爱真题付费版"
+    if source_file.startswith("bb/"):
+        return "bb 截图"
+    return "网上下载"
 
 
 def source_filter_clause(source: str | None) -> tuple[str, list[Any]]:
     if source == "bb":
         return " AND p.source_file LIKE 'bb/' || '%%'", []
+    if source == "pay":
+        return " AND p.source_file LIKE 'pay/' || '%%'", []
     if source == "web":
-        return " AND p.source_file NOT LIKE 'bb/' || '%%'", []
+        return " AND p.source_file NOT LIKE 'bb/' || '%%' AND p.source_file NOT LIKE 'pay/' || '%%'", []
     return "", []
 
 
@@ -71,7 +76,11 @@ def row_to_question(row: tuple[Any, ...]) -> dict[str, Any]:
         "answer": answer,
         "explanation": explanation,
         "source_file": source_file,
-        "source": "bb" if source_file.startswith("bb/") else "web",
+        "source": (
+            "pay"
+            if source_file.startswith("pay/")
+            else ("bb" if source_file.startswith("bb/") else "web")
+        ),
         "source_label": source_label(source_file),
     }
 
@@ -240,8 +249,18 @@ def search_questions(
 
 
 @app.get("/")
-def index() -> FileResponse:
-    return FileResponse(STATIC_DIR / "index.html")
+def index() -> HTMLResponse:
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    base_href = f"{ROOT_PATH}/" if ROOT_PATH else "/"
+    base_tag = f'  <base href="{base_href}" />\n'
+    html = html.replace("<head>\n", f"<head>\n{base_tag}", 1)
+    static_version = str(int(max(
+        (STATIC_DIR / "app.js").stat().st_mtime,
+        (STATIC_DIR / "style.css").stat().st_mtime,
+    )))
+    html = html.replace("static/style.css", f"static/style.css?v={static_version}", 1)
+    html = html.replace("static/app.js", f"static/app.js?v={static_version}", 1)
+    return HTMLResponse(html)
 
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

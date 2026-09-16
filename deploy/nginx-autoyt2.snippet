@@ -2,6 +2,10 @@
 # 路径：/opt/autoyt2/nginx.conf
 # 改完后：cd /opt/autoyt2 && docker compose build nginx && docker compose up -d nginx
 
+    location = /quiz {
+        return 301 /quiz/;
+    }
+
     location /quiz/ {
         proxy_pass http://question_repo_quiz:8765/;
         proxy_set_header Host $host;
