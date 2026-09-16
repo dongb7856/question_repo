@@ -30,8 +30,17 @@ def import_pay() -> None:
         init_schema(conn)
         with conn.cursor() as cur:
             for path in files:
-                paper = parse_pay_file(path)
-                kind = "pay_pdf" if path.suffix.lower() == ".pdf" else "pay_doc"
+                try:
+                    paper = parse_pay_file(path)
+                except Exception as exc:
+                    print(f"  SKIP {path.name}: 解析失败 ({exc})")
+                    continue
+
+                suffix = path.suffix.lower()
+                kind = {
+                    ".pdf": "pay_pdf",
+                    ".txt": "pay_txt",
+                }.get(suffix, "pay_doc")
                 n = import_paper(cur, paper, source_kind=kind)
                 total_questions += n
                 total_papers += 1

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import re
+import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -24,21 +26,23 @@ CHOICE_ANSWER_LINE = re.compile(r"^(\d+)[、.．]\s*([A-D])\s*$")
 SUBJECTIVE_ANSWER_LINE = re.compile(r"^(\d+)[、.．]\s*(.+)$")
 
 
-def extract_doc(path: Path) -> str:
-    proc = subprocess.run(
-        ["textutil", "-convert", "txt", "-stdout", str(path)],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if proc.returncode == 0 and proc.stdout.strip():
-        return proc.stdout
+def _libreoffice_bin() -> str | None:
+    for name in ("soffice", "libreoffice"):
+        if shutil.which(name):
+            return name
+    return None
+
+
+def _convert_doc_with_libreoffice(path: Path) -> str:
+    office = _libreoffice_bin()
+    if not office:
+        return ""
 
     with tempfile.TemporaryDirectory() as tmp:
         outdir = Path(tmp)
         subprocess.run(
             [
-                "soffice",
+                office,
                 "--headless",
                 "--convert-to",
                 "txt",
@@ -53,6 +57,20 @@ def extract_doc(path: Path) -> str:
         if txt.exists():
             return txt.read_text(encoding="utf-8", errors="replace")
     return ""
+
+
+def extract_doc(path: Path) -> str:
+    if sys.platform == "darwin" and shutil.which("textutil"):
+        proc = subprocess.run(
+            ["textutil", "-convert", "txt", "-stdout", str(path)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if proc.returncode == 0 and proc.stdout.strip():
+            return proc.stdout
+
+    return _convert_doc_with_libreoffice(path)
 
 
 def extract_pdf(path: Path) -> str:
