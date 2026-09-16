@@ -32,12 +32,29 @@ def startup() -> None:
         init_schema(conn)
 
 
+SOURCE_QUERY_PATTERN = "^(bb|web|pay)$"
+
+
+def classify_source(source_file: str) -> str:
+    if source_file.startswith("pay/"):
+        return "pay"
+    if source_file.startswith("bb/"):
+        return "bb"
+    return "web"
+
+
 def source_label(source_file: str) -> str:
+    if "河南成考网" in source_file:
+        return "河南成考网"
     if source_file.startswith("pay/"):
         return "爱真题付费版"
     if source_file.startswith("bb/"):
         return "bb 截图"
     return "网上下载"
+
+
+def stats_source_label(source: str) -> str:
+    return {"bb": "bb 截图", "pay": "付费/抓取", "web": "网上下载"}.get(source, source)
 
 
 def source_filter_clause(source: str | None) -> tuple[str, list[Any]]:
@@ -76,11 +93,7 @@ def row_to_question(row: tuple[Any, ...]) -> dict[str, Any]:
         "answer": answer,
         "explanation": explanation,
         "source_file": source_file,
-        "source": (
-            "pay"
-            if source_file.startswith("pay/")
-            else ("bb" if source_file.startswith("bb/") else "web")
-        ),
+        "source": classify_source(source_file),
         "source_label": source_label(source_file),
     }
 
@@ -95,7 +108,7 @@ def list_subjects() -> list[str]:
 @app.get("/api/years")
 def list_years(
     subject: str | None = None,
-    source: str | None = Query(None, pattern="^(bb|web)$"),
+    source: str | None = Query(None, pattern=SOURCE_QUERY_PATTERN),
 ) -> list[int]:
     sql = """
         SELECT DISTINCT p.year
@@ -120,11 +133,15 @@ def list_years(
 
 @app.get("/api/stats")
 def stats(
-    source: str | None = Query(None, pattern="^(bb|web)$"),
+    source: str | None = Query(None, pattern=SOURCE_QUERY_PATTERN),
 ) -> list[dict[str, Any]]:
     sql = """
         SELECT s.name, p.year,
-               CASE WHEN p.source_file LIKE 'bb/' || '%%' THEN 'bb' ELSE 'web' END AS source,
+               CASE
+                   WHEN p.source_file LIKE 'bb/' || '%%' THEN 'bb'
+                   WHEN p.source_file LIKE 'pay/' || '%%' THEN 'pay'
+                   ELSE 'web'
+               END AS source,
                COUNT(q.id),
                COUNT(q.answer) FILTER (WHERE q.answer IS NOT NULL)
         FROM exam_papers p
@@ -151,7 +168,7 @@ def stats(
             "subject": subject,
             "year": year,
             "source": src,
-            "source_label": "bb 截图" if src == "bb" else "网上下载",
+            "source_label": stats_source_label(src),
             "total": total,
             "answered": answered,
             "from_bb": src == "bb",
@@ -166,7 +183,7 @@ def random_questions(
     subject: str | None = None,
     year: int | None = None,
     question_type: str | None = None,
-    source: str | None = Query(None, pattern="^(bb|web)$"),
+    source: str | None = Query(None, pattern=SOURCE_QUERY_PATTERN),
 ) -> list[dict[str, Any]]:
     sql = """
         SELECT q.id, s.name, p.year, q.number, q.question_type::text,
@@ -203,6 +220,8 @@ def random_questions(
         detail = "没有符合条件的题目"
         if source == "bb":
             detail = "没有符合条件的 bb 截图题"
+        elif source == "pay":
+            detail = "没有符合条件的付费/抓取题"
         elif source == "web":
             detail = "没有符合条件的网上下载题"
         raise HTTPException(status_code=404, detail=detail)
@@ -215,7 +234,7 @@ def search_questions(
     subject: str | None = None,
     year: int | None = None,
     limit: int = Query(20, ge=1, le=100),
-    source: str | None = Query(None, pattern="^(bb|web)$"),
+    source: str | None = Query(None, pattern=SOURCE_QUERY_PATTERN),
 ) -> list[dict[str, Any]]:
     sql = """
         SELECT q.id, s.name, p.year, q.number, q.question_type::text,

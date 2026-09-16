@@ -159,6 +159,11 @@ body {
   color: var(--primary);
 }
 
+.stat-badge.pay {
+  background: #dcfce7;
+  color: #15803d;
+}
+
 .tag-source {
   background: #f3f4f6;
   color: var(--text-secondary);
@@ -169,6 +174,12 @@ body {
   background: #fef3c7;
   color: #b45309;
   border-color: #fde68a;
+}
+
+.tag-source.pay {
+  background: #dcfce7;
+  color: #15803d;
+  border-color: #bbf7d0;
 }
 
 /* Controls */

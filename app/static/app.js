@@ -163,7 +163,7 @@ function renderQuestion() {
         .join("")
     : "";
 
-  const sourceClass = q.source === "bb" ? "bb" : "";
+  const sourceClass = q.source === "bb" ? "bb" : q.source === "pay" ? "pay" : "";
   els.card.innerHTML = `
     <div class="meta">
       <span class="tag">${escapeHtml(q.subject)}</span>
@@ -271,8 +271,8 @@ async function loadStats() {
       const sorted = rows.sort((a, b) => b.year - a.year || a.source.localeCompare(b.source));
       const rowHtml = sorted
         .map((item) => {
-          const badgeClass = item.source === "bb" ? "bb" : "web";
-          const badgeText = item.source === "bb" ? "bb" : "网";
+          const badgeClass = item.source === "bb" ? "bb" : item.source === "pay" ? "pay" : "web";
+          const badgeText = item.source === "bb" ? "bb" : item.source === "pay" ? "pay" : "网";
           return `
             <div class="stat-row">
               <span class="stat-year">${item.year} 年<span class="stat-badge ${badgeClass}">${badgeText}</span></span>
