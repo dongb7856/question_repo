@@ -40,7 +40,7 @@ def import_pay() -> None:
                 kind = {
                     ".pdf": "pay_pdf",
                     ".txt": "pay_txt",
-                }.get(suffix, "pay_doc")
+                }[suffix]
                 n = import_paper(cur, paper, source_kind=kind)
                 total_questions += n
                 total_papers += 1

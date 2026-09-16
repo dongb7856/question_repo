@@ -1,12 +1,8 @@
-"""解析 questions/pay/ 爱真题付费版（.doc / .pdf）。"""
+"""解析 questions/pay/ 爱真题付费版（.txt / .pdf）。"""
 
 from __future__ import annotations
 
 import re
-import shutil
-import subprocess
-import sys
-import tempfile
 from pathlib import Path
 
 from parse_questions import (
@@ -26,53 +22,6 @@ CHOICE_ANSWER_LINE = re.compile(r"^(\d+)[、.．]\s*([A-D])\s*$")
 SUBJECTIVE_ANSWER_LINE = re.compile(r"^(\d+)[、.．]\s*(.+)$")
 
 
-def _libreoffice_bin() -> str | None:
-    for name in ("soffice", "libreoffice"):
-        if shutil.which(name):
-            return name
-    return None
-
-
-def _convert_doc_with_libreoffice(path: Path) -> str:
-    office = _libreoffice_bin()
-    if not office:
-        return ""
-
-    with tempfile.TemporaryDirectory() as tmp:
-        outdir = Path(tmp)
-        subprocess.run(
-            [
-                office,
-                "--headless",
-                "--convert-to",
-                "txt",
-                "--outdir",
-                str(outdir),
-                str(path),
-            ],
-            capture_output=True,
-            check=False,
-        )
-        txt = outdir / f"{path.stem}.txt"
-        if txt.exists():
-            return txt.read_text(encoding="utf-8", errors="replace")
-    return ""
-
-
-def extract_doc(path: Path) -> str:
-    if sys.platform == "darwin" and shutil.which("textutil"):
-        proc = subprocess.run(
-            ["textutil", "-convert", "txt", "-stdout", str(path)],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if proc.returncode == 0 and proc.stdout.strip():
-            return proc.stdout
-
-    return _convert_doc_with_libreoffice(path)
-
-
 def extract_pdf(path: Path) -> str:
     from pypdf import PdfReader
 
@@ -84,11 +33,9 @@ def extract_text(path: Path) -> str:
     suffix = path.suffix.lower()
     if suffix == ".pdf":
         return extract_pdf(path)
-    if suffix == ".doc":
-        return extract_doc(path)
     if suffix == ".txt":
         return path.read_text(encoding="utf-8")
-    raise ValueError(f"不支持的文件类型: {path}")
+    raise ValueError(f"不支持的文件类型: {path}，请使用 .txt 或 .pdf")
 
 
 def infer_subject(path: Path) -> str:
@@ -188,7 +135,7 @@ def discover_pay_files(root: Path = PAY_DIR) -> list[Path]:
     chosen: dict[tuple[str, int], Path] = {}
 
     for path in sorted(root.rglob("*")):
-        if path.suffix.lower() not in {".doc", ".pdf", ".txt"}:
+        if path.suffix.lower() not in {".pdf", ".txt"}:
             continue
         subject = infer_subject(path)
         year = infer_year(path)
