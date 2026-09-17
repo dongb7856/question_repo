@@ -9,7 +9,7 @@ from typing import Any
 
 import httpx
 
-_CHOICE_ANSWER = re.compile(r"^([A-D])\b", re.I)
+_CHOICE_ANSWER = re.compile(r"^([A-H])\b", re.I)
 _SIMILARITY_THRESHOLD = 70
 
 
@@ -54,6 +54,19 @@ def normalize_choice_answer(raw: Any) -> str | None:
         return None
     match = _CHOICE_ANSWER.match(str(raw).strip())
     return match.group(1).upper() if match else None
+
+
+def _choice_letters_hint(options: Any) -> str:
+    if isinstance(options, str):
+        try:
+            options = json.loads(options)
+        except json.JSONDecodeError:
+            return "A/B/C/D"
+    if isinstance(options, dict) and options:
+        keys = {str(key).upper() for key in options}
+        if keys & {"E", "F", "G", "H"}:
+            return "A-H"
+    return "A/B/C/D"
 
 
 def _is_gradable_choice(question: dict[str, Any]) -> bool:
@@ -200,14 +213,18 @@ def analyze_question(question: dict[str, Any]) -> dict[str, Any]:
     if explanation:
         user_bits.append(f"题库附带解析：{explanation}")
 
+    choice_letters = _choice_letters_hint(question.get("options"))
     schema_hint = (
-        '{"suggested_answer":"你的答案（选择题仅 A/B/C/D；主观题写要点）",'
+        f'{{"suggested_answer":"你的答案（选择题仅 {choice_letters}；主观题写要点）",'
         '"analysis":"独立解题过程与依据，150字内",'
         '"similarity_score":85,'
         '"discrepancy_note":"若与题库参考答案含义明显不一致，说明差异；一致则留空"}'
     )
 
-    choice_rule = "选择题 suggested_answer 必须是单个 A/B/C/D，similarity_score 在与题库选项一致时为 100，否则为 0。"
+    choice_rule = (
+        f"选择题 suggested_answer 必须是单个 {choice_letters}，"
+        "similarity_score 在与题库选项一致时为 100，否则为 0。"
+    )
     subjective_rule = (
         "主观题/简答/论述：比较题库参考答案与你的 suggested_answer 的语义与要点覆盖度，"
         "similarity_score 取 0-100（看含义，不看字面是否相同）。"
@@ -218,7 +235,7 @@ def analyze_question(question: dict[str, Any]) -> dict[str, Any]:
         {
             "role": "system",
             "content": (
-                "你是成人高考专升本（政治/民法）审题专家。"
+                "你是成人高考专升本（政治/民法/英语）审题专家。"
                 "请先独立解题，不要默认题库答案正确。"
                 "再评估你的答案与题库参考答案在含义上的一致程度。"
                 f"{choice_rule if is_choice else subjective_rule}"

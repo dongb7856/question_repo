@@ -467,6 +467,87 @@ input:focus {
   font-size: 0.95rem;
 }
 
+.passage-label {
+  margin-top: 18px;
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--primary);
+}
+
+.cloze-passage,
+.group-passage {
+  margin-top: 8px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: #fafbff;
+  max-height: 320px;
+  overflow: auto;
+}
+
+.cloze-items,
+.group-items {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.cloze-item,
+.group-item {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: #fff;
+}
+
+.cloze-blank-label,
+.group-item-label {
+  font-weight: 600;
+  margin-bottom: 10px;
+  color: var(--text);
+}
+
+.group-item-prompt {
+  margin-bottom: 10px;
+  line-height: 1.7;
+  color: var(--text-secondary);
+}
+
+.cloze-options,
+.group-options {
+  margin-top: 0;
+}
+
+.cloze-option.selected,
+.group-option.selected {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.cloze-option.selected .option-key,
+.group-option.selected .option-key {
+  background: var(--primary);
+  color: #fff;
+}
+
+.choice-pool {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 12px 14px;
+  border: 1px dashed var(--primary-border);
+  border-radius: var(--radius-sm);
+  background: #fff;
+}
+
+.pool-option {
+  font-size: 0.92rem;
+  line-height: 1.55;
+  color: var(--text-secondary);
+}
+
 .answer {
   margin-top: 20px;
   padding: 14px 16px;
@@ -618,6 +699,50 @@ input:focus {
 
 .analysis-error {
   color: var(--error-text);
+}
+
+.group-deepseek-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.group-deepseek-item {
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.group-deepseek-item.agree {
+  border-color: var(--success-border);
+}
+
+.group-deepseek-item.disagree {
+  border-color: var(--error-border);
+}
+
+.group-deepseek-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.group-deepseek-label {
+  font-weight: 600;
+  font-size: 0.92rem;
+}
+
+.group-deepseek-suggested {
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.group-deepseek-body.loading {
+  color: var(--text-muted);
+  font-style: italic;
 }
 
 .answer.correct {

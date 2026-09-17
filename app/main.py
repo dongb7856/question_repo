@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -58,6 +59,63 @@ def startup() -> None:
 
 
 SOURCE_QUERY_PATTERN = "^(bb|web|pay)$"
+ENGLISH_SECTION_PATTERN = "^(phonetics|vocabulary|cloze|reading|dialogue|writing)$"
+
+ENGLISH_SECTION_OPTIONS = [
+    {"value": "phonetics", "label": "语音题"},
+    {"value": "vocabulary", "label": "词汇和语法"},
+    {"value": "cloze", "label": "完形填空"},
+    {"value": "reading", "label": "阅读理解"},
+    {"value": "dialogue", "label": "日常对话"},
+    {"value": "writing", "label": "写作"},
+]
+
+GENERIC_TYPE_OPTIONS = [
+    {"value": "choice", "label": "选择题"},
+    {"value": "short_answer", "label": "简答题"},
+    {"value": "essay", "label": "论述题"},
+    {"value": "case_analysis", "label": "案例分析"},
+]
+
+ENGLISH_SECTION_SQL: dict[str, str] = {
+    "phonetics": """
+        AND q.stem NOT LIKE '%%【阅读材料】%%'
+        AND q.stem NOT LIKE '%%【完形短文】%%'
+        AND q.stem NOT LIKE '%%【对话材料】%%'
+        AND (
+            q.section_title ~* '语音|Phonetics'
+            OR (q.number <= 5 AND q.question_type = 'choice')
+        )
+    """,
+    "vocabulary": """
+        AND q.stem NOT LIKE '%%【阅读材料】%%'
+        AND q.stem NOT LIKE '%%【完形短文】%%'
+        AND q.stem NOT LIKE '%%【对话材料】%%'
+        AND q.section_title !~* 'Writing|作文|阅读|完形|完型|对话|Cloze|Reading|Daily'
+        AND (
+            q.section_title ~* 'Vocabulary|词汇|语法|Structure'
+            OR (q.question_type = 'choice' AND q.number BETWEEN 6 AND 35)
+        )
+    """,
+    "cloze": " AND q.stem LIKE '%%【完形短文】%%'",
+    "reading": " AND q.stem LIKE '%%【阅读材料】%%'",
+    "dialogue": " AND q.stem LIKE '%%【对话材料】%%'",
+    "writing": """
+        AND q.stem NOT LIKE '%%【完形短文】%%'
+        AND (
+            q.section_title ~* 'Writing|作文'
+            OR q.stem ~* 'write an essay|写一篇|写一封'
+            OR q.question_type IN ('essay', 'short_answer')
+        )
+    """,
+}
+
+
+def english_section_clause(section: str) -> str:
+    clause = ENGLISH_SECTION_SQL.get(section)
+    if not clause:
+        raise HTTPException(status_code=400, detail=f"未知英语题型: {section}")
+    return clause
 
 
 def classify_source(source_file: str) -> str:
@@ -93,6 +151,8 @@ def source_filter_clause(source: str | None) -> tuple[str, list[Any]]:
 
 
 def row_to_question(row: tuple[Any, ...]) -> dict[str, Any]:
+    if len(row) > 11:
+        row = row[:11]
     (
         qid,
         subject,
@@ -202,23 +262,112 @@ def stats(
     ]
 
 
+def _passage_group_key(
+    stem: str,
+    section: str | None,
+    material_label: str,
+    section_pattern: str,
+) -> str | None:
+    if not stem or material_label not in stem:
+        return None
+    if not section or not re.search(section_pattern, section, re.I):
+        return None
+    marker = "\n\n【题目】\n"
+    idx = stem.find(marker)
+    if idx == -1:
+        return None
+    return stem[:idx]
+
+
+def cloze_passage_key(stem: str, section: str | None) -> str | None:
+    return _passage_group_key(stem, section, "【完形短文】", r"完形|完型|Cloze")
+
+
+def reading_passage_key(stem: str, section: str | None) -> str | None:
+    return _passage_group_key(stem, section, "【阅读材料】", r"阅读|Reading")
+
+
+def dialogue_passage_key(stem: str, section: str | None) -> str | None:
+    return _passage_group_key(
+        stem, section, "【对话材料】", r"日常对话|Daily\s+Conversation"
+    )
+
+
+PASSAGE_SIBLING_SQL = """
+        SELECT q.id, s.name, p.year, q.number, q.question_type::text,
+               q.section_title, q.stem, q.options, q.answer, q.explanation,
+               p.source_file, p.id
+        FROM questions q
+        JOIN exam_papers p ON p.id = q.exam_paper_id
+        JOIN subjects s ON s.id = p.subject_id
+        WHERE p.id = %s
+          AND q.stem LIKE %s
+          AND q.stem LIKE '%%【题目】%%'
+        ORDER BY q.number
+"""
+
+
+def expand_passage_siblings(
+    cur,
+    rows: list[tuple[Any, ...]],
+    key_fn,
+) -> list[tuple[Any, ...]]:
+    by_id: dict[int, tuple[Any, ...]] = {row[0]: row for row in rows}
+    groups: set[tuple[int, str]] = set()
+
+    for row in rows:
+        paper_id = row[11] if len(row) > 11 else None
+        if paper_id is None:
+            continue
+        passage_key = key_fn(row[6], row[5])
+        if passage_key:
+            groups.add((paper_id, passage_key))
+
+    for paper_id, passage_key in groups:
+        cur.execute(PASSAGE_SIBLING_SQL, (paper_id, f"{passage_key}%"))
+        for sibling in cur.fetchall():
+            by_id[sibling[0]] = sibling
+
+    return list(by_id.values())
+
+
+def expand_grouped_siblings(cur, rows: list[tuple[Any, ...]]) -> list[tuple[Any, ...]]:
+    """补全同一试卷内共享材料的全部子题（完形/阅读/对话）。"""
+    for key_fn in (cloze_passage_key, reading_passage_key, dialogue_passage_key):
+        rows = expand_passage_siblings(cur, rows, key_fn)
+    return rows
+
+
+RANDOM_QUESTION_SQL = """
+        SELECT q.id, s.name, p.year, q.number, q.question_type::text,
+               q.section_title, q.stem, q.options, q.answer, q.explanation,
+               p.source_file, p.id
+        FROM questions q
+        JOIN exam_papers p ON p.id = q.exam_paper_id
+        JOIN subjects s ON s.id = p.subject_id
+        WHERE p.year > 0
+"""
+
+
+@app.get("/api/section-options")
+def section_options(subject: str | None = None) -> list[dict[str, str]]:
+    if subject == "英语":
+        return ENGLISH_SECTION_OPTIONS
+    if subject in ("政治", "民法"):
+        return GENERIC_TYPE_OPTIONS
+    return []
+
+
 @app.get("/api/questions/random")
 def random_questions(
     count: int = Query(10, ge=1, le=50),
     subject: str | None = None,
     year: int | None = None,
     question_type: str | None = None,
+    english_section: str | None = Query(None, pattern=ENGLISH_SECTION_PATTERN),
     source: str | None = Query(None, pattern=SOURCE_QUERY_PATTERN),
 ) -> list[dict[str, Any]]:
-    sql = """
-        SELECT q.id, s.name, p.year, q.number, q.question_type::text,
-               q.section_title, q.stem, q.options, q.answer, q.explanation,
-               p.source_file
-        FROM questions q
-        JOIN exam_papers p ON p.id = q.exam_paper_id
-        JOIN subjects s ON s.id = p.subject_id
-        WHERE p.year > 0
-    """
+    sql = RANDOM_QUESTION_SQL
     params: list[Any] = []
 
     if subject:
@@ -227,7 +376,11 @@ def random_questions(
     if year:
         sql += " AND p.year = %s"
         params.append(year)
-    if question_type:
+    if english_section:
+        if subject and subject != "英语":
+            raise HTTPException(status_code=400, detail="english_section 仅适用于英语科目")
+        sql += english_section_clause(english_section)
+    elif question_type:
         sql += " AND q.question_type::text = %s"
         params.append(question_type)
     source_sql, source_params = source_filter_clause(source)
@@ -239,7 +392,7 @@ def random_questions(
 
     with connect() as conn, conn.cursor() as cur:
         cur.execute(sql, params)
-        rows = cur.fetchall()
+        rows = expand_grouped_siblings(cur, cur.fetchall())
 
     if not rows:
         detail = "没有符合条件的题目"
@@ -259,6 +412,8 @@ def search_questions(
     subject: str | None = None,
     year: int | None = None,
     limit: int = Query(20, ge=1, le=100),
+    question_type: str | None = None,
+    english_section: str | None = Query(None, pattern=ENGLISH_SECTION_PATTERN),
     source: str | None = Query(None, pattern=SOURCE_QUERY_PATTERN),
 ) -> list[dict[str, Any]]:
     sql = """
@@ -278,6 +433,13 @@ def search_questions(
     if year:
         sql += " AND p.year = %s"
         params.append(year)
+    if english_section:
+        if subject and subject != "英语":
+            raise HTTPException(status_code=400, detail="english_section 仅适用于英语科目")
+        sql += english_section_clause(english_section)
+    elif question_type:
+        sql += " AND q.question_type::text = %s"
+        params.append(question_type)
     source_sql, source_params = source_filter_clause(source)
     sql += source_sql
     params.extend(source_params)

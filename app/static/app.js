@@ -6,6 +6,31 @@ const TYPE_LABELS = {
   other: "其他",
 };
 
+const ENGLISH_SECTION_LABELS = {
+  phonetics: "语音题",
+  vocabulary: "词汇和语法",
+  cloze: "完形填空",
+  reading: "阅读理解",
+  dialogue: "日常对话",
+  writing: "写作",
+};
+
+const GENERIC_TYPE_OPTIONS = [
+  { value: "choice", label: "选择题" },
+  { value: "short_answer", label: "简答题" },
+  { value: "essay", label: "论述题" },
+  { value: "case_analysis", label: "案例分析" },
+];
+
+const ENGLISH_TYPE_OPTIONS = [
+  { value: "phonetics", label: "语音题" },
+  { value: "vocabulary", label: "词汇和语法" },
+  { value: "cloze", label: "完形填空" },
+  { value: "reading", label: "阅读理解" },
+  { value: "dialogue", label: "日常对话" },
+  { value: "writing", label: "写作" },
+];
+
 const state = {
   questions: [],
   index: 0,
@@ -75,6 +100,60 @@ function updateProgress() {
   els.progressFill.style.width = `${pct}%`;
 }
 
+function inferEnglishSection(q) {
+  if (isGroupSet(q)) return q.groupKind;
+  const stem = q?.stem || "";
+  const sec = q?.section_title || "";
+  if (stem.includes("【完形短文】")) return "cloze";
+  if (stem.includes("【阅读材料】")) return "reading";
+  if (stem.includes("【对话材料】")) return "dialogue";
+  if (/Writing|作文/i.test(sec) || /write an essay|写一篇|写一封/i.test(stem)) return "writing";
+  if (/语音|Phonetics/i.test(sec)) return "phonetics";
+  if (/Vocabulary|词汇|语法|Structure/i.test(sec)) return "vocabulary";
+  if (q?.number <= 5 && !stem.includes("【")) return "phonetics";
+  if (q?.number <= 20 && q?.question_type === "choice" && !stem.includes("【")) return "vocabulary";
+  return null;
+}
+
+function questionDisplayType(q) {
+  if (!q) return "题目";
+  const englishSection = inferEnglishSection(q);
+  if (englishSection) return ENGLISH_SECTION_LABELS[englishSection] || englishSection;
+  return TYPE_LABELS[q.question_type] || q.question_type || "题目";
+}
+
+function refreshTypeOptions() {
+  const subject = els.subject.value;
+  const previous = els.type.value;
+  const options =
+    subject === "英语"
+      ? ENGLISH_TYPE_OPTIONS
+      : subject === "政治" || subject === "民法"
+        ? GENERIC_TYPE_OPTIONS
+        : [];
+
+  els.type.innerHTML = '<option value="">全部</option>';
+  options.forEach(({ value, label }) => {
+    const opt = document.createElement("option");
+    opt.value = value;
+    opt.textContent = label;
+    els.type.appendChild(opt);
+  });
+
+  const valid = ["", ...options.map((item) => item.value)];
+  els.type.value = valid.includes(previous) ? previous : "";
+}
+
+function appendTypeFilter(params) {
+  const value = els.type.value;
+  if (!value) return;
+  if (els.subject.value === "英语") {
+    params.set("english_section", value);
+  } else {
+    params.set("question_type", value);
+  }
+}
+
 function parseOptions(raw) {
   if (!raw) return null;
   if (typeof raw === "string") {
@@ -87,7 +166,167 @@ function parseOptions(raw) {
   return typeof raw === "object" ? raw : null;
 }
 
+const GROUP_CONFIG = {
+  cloze: {
+    materialTag: "【完形短文】",
+    sectionRe: /完形|完型|Cloze/i,
+    typeName: "完形填空",
+    unit: "空",
+    stripPrefix: /^【完形短文】\n?/,
+    maxLetter: "D",
+  },
+  reading: {
+    materialTag: "【阅读材料】",
+    sectionRe: /阅读|Reading/i,
+    typeName: "阅读理解",
+    unit: "题",
+    stripPrefix: /^【阅读材料】\n?/,
+    maxLetter: "D",
+  },
+  dialogue: {
+    materialTag: "【对话材料】",
+    sectionRe: /日常对话|Daily\s+Conversation/i,
+    typeName: "日常对话",
+    unit: "空",
+    stripPrefix: /^【对话材料】\n?/,
+    maxLetter: "H",
+  },
+};
+
+function splitMaterialStem(stem) {
+  const marker = "\n\n【题目】\n";
+  const idx = (stem || "").indexOf(marker);
+  if (idx === -1) return ["", stem || ""];
+  return [stem.slice(0, idx), stem.slice(idx + marker.length).trim()];
+}
+
+function getMaterialPassageKey(q, config) {
+  const stem = q?.stem || "";
+  if (!stem.includes(config.materialTag)) return null;
+  if (!config.sectionRe.test(q.section_title || "")) return null;
+  const [passage] = splitMaterialStem(stem);
+  return passage || null;
+}
+
+function parseChoicePoolFromPassage(passage) {
+  const options = {};
+  for (const line of passage.split("\n")) {
+    const match = line.trim().match(/^([A-H])[\.．、]\s*(.+)$/);
+    if (match) options[match[1]] = match[2].trim();
+  }
+  if (Object.keys(options).length >= 4) return options;
+  const inline = passage.replace(/\n/g, " ");
+  for (const match of inline.matchAll(/([A-H])[\.．、]\s*(.+?)(?=\s+[A-H][\.．、]|$)/g)) {
+    if (!options[match[1]]) options[match[1]] = match[2].trim();
+  }
+  return Object.keys(options).length >= 4 ? options : null;
+}
+
+function parseItemId(kind, prompt, number) {
+  if (kind === "cloze") {
+    const match = String(prompt || "").match(/【(C\d+)】/);
+    return match ? match[1] : String(number);
+  }
+  return String(number);
+}
+
+function buildGroupComposite(group, passageKey, kind) {
+  const config = GROUP_CONFIG[kind];
+  const sorted = [...group].sort((a, b) => a.number - b.number);
+  const pool = kind === "dialogue" ? parseChoicePoolFromPassage(passageKey) : null;
+  const groupItems = sorted.map((q) => {
+    const [, prompt] = splitMaterialStem(q.stem || "");
+    const itemId = parseItemId(kind, prompt, q.number);
+    return {
+      id: q.id,
+      number: q.number,
+      itemId,
+      label: kind === "reading" ? `第 ${q.number} 题` : prompt,
+      prompt,
+      options: parseOptions(q.options) || pool,
+      answer: normalizeAnswerKey(q.answer, config.maxLetter),
+    };
+  });
+  const first = sorted[0];
+  const last = sorted[sorted.length - 1];
+  return {
+    ...first,
+    id: sorted.map((item) => item.id).join(","),
+    groupKind: kind,
+    groupItems,
+    choicePool: pool,
+    stem: passageKey,
+    number: `${first.number}–${last.number}`,
+    options: null,
+    answer: null,
+    explanation: null,
+  };
+}
+
+function groupByMaterialKind(questions, kind) {
+  const config = GROUP_CONFIG[kind];
+  const grouped = [];
+  const used = new Set();
+
+  for (let i = 0; i < questions.length; i += 1) {
+    if (used.has(i)) continue;
+    const q = questions[i];
+    if (q.groupKind) {
+      grouped.push(q);
+      continue;
+    }
+    const key = getMaterialPassageKey(q, config);
+    if (!key) {
+      grouped.push(q);
+      continue;
+    }
+    const mates = [q];
+    used.add(i);
+    for (let j = i + 1; j < questions.length; j += 1) {
+      if (used.has(j)) continue;
+      const other = questions[j];
+      if (other.groupKind) continue;
+      if (getMaterialPassageKey(other, config) === key) {
+        mates.push(other);
+        used.add(j);
+      }
+    }
+    grouped.push(mates.length > 1 ? buildGroupComposite(mates, key, kind) : q);
+  }
+  return grouped;
+}
+
+function groupMaterialQuestions(questions) {
+  let result = questions;
+  for (const kind of ["cloze", "reading", "dialogue"]) {
+    result = groupByMaterialKind(result, kind);
+  }
+  return result;
+}
+
+function isGroupSet(q) {
+  return Boolean(q?.groupKind && Array.isArray(q.groupItems) && q.groupItems.length > 1);
+}
+
+function isClozeSet(q) {
+  return isGroupSet(q) && q.groupKind === "cloze";
+}
+
+function getGroupConfig(q) {
+  return GROUP_CONFIG[q?.groupKind] || null;
+}
+
+// 兼容旧引用
+function getClozePassageKey(q) {
+  return getMaterialPassageKey(q, GROUP_CONFIG.cloze);
+}
+
+function groupClozeQuestions(questions) {
+  return groupMaterialQuestions(questions);
+}
+
 function isChoiceQuestion(q) {
+  if (isGroupSet(q)) return false;
   const options = parseOptions(q.options);
   if (!options) return false;
   const keys = Object.keys(options);
@@ -95,8 +334,13 @@ function isChoiceQuestion(q) {
 }
 
 function normalizeAnswer(raw) {
+  return normalizeAnswerKey(raw, "D");
+}
+
+function normalizeAnswerKey(raw, maxLetter = "D") {
   if (!raw) return null;
-  const match = String(raw).trim().match(/^([A-D])/i);
+  const pattern = maxLetter === "H" ? /^([A-H])/i : /^([A-D])/i;
+  const match = String(raw).trim().match(pattern);
   return match ? match[1].toUpperCase() : null;
 }
 
@@ -116,30 +360,78 @@ function ensureAttempt(index) {
       questionType: q?.question_type,
       stemPreview: q?.stem?.slice(0, 80) || "",
       isChoice: q ? isChoiceQuestion(q) : false,
+      isGroupSet: q ? isGroupSet(q) : false,
+      groupAnswers: {},
       userAnswer: null,
       storedAnswer: q?.answer || null,
       isCorrect: null,
+      groupCorrect: null,
+      groupGradable: null,
       viewedAnswer: false,
       deepseekAgrees: null,
       deepseekSuggested: null,
       deepseekAnalysis: "",
       deepseekDiscrepancy: "",
       similarityScore: null,
+      groupDeepseekItems: {},
     };
   }
   return state.attempts[index];
+}
+
+function allGroupItemsAnswered(q, answers) {
+  if (!isGroupSet(q)) return false;
+  return q.groupItems.every((item) => Boolean(answers?.[item.itemId]));
 }
 
 function snapshotCurrentAttempt() {
   const q = state.questions[state.index];
   if (!q) return;
   const attempt = ensureAttempt(state.index);
-  attempt.userAnswer = state.selectedAnswer;
   attempt.viewedAnswer = state.answerVisible;
   attempt.storedAnswer = q.answer || null;
+
+  if (isGroupSet(q)) {
+    attempt.groupAnswers = { ...(state.groupAnswers || {}) };
+    if (state.answerVisible) {
+      const stats = gradeGroupSet(q, attempt.groupAnswers);
+      attempt.groupCorrect = stats.correct;
+      attempt.groupGradable = stats.gradable;
+      attempt.isCorrect = stats.gradable > 0 && stats.correct === stats.gradable;
+    }
+    return;
+  }
+
+  attempt.userAnswer = state.selectedAnswer;
   if (attempt.isChoice && normalizeAnswer(q.answer) && state.selectedAnswer) {
     attempt.isCorrect = normalizeAnswer(q.answer) === state.selectedAnswer;
   }
+}
+
+function gradeGroupSet(q, answers) {
+  let correct = 0;
+  let gradable = 0;
+  for (const item of q.groupItems) {
+    if (!item.answer) continue;
+    gradable += 1;
+    if (answers?.[item.itemId] === item.answer) correct += 1;
+  }
+  return { correct, gradable };
+}
+
+function formatGroupAnswerKey(q) {
+  return q.groupItems
+    .filter((item) => item.answer)
+    .map((item) => {
+      if (q.groupKind === "reading") return `${item.number}: ${item.answer}`;
+      return `${item.label}: ${item.answer}`;
+    })
+    .join("；");
+}
+
+function groupResultLabel(q) {
+  const config = getGroupConfig(q);
+  return config?.typeName || "题目";
 }
 
 function restoreAttempt(index) {
@@ -147,13 +439,34 @@ function restoreAttempt(index) {
   if (!attempt) return;
 
   state.selectedAnswer = attempt.userAnswer;
-  state.answered = Boolean(attempt.userAnswer || attempt.viewedAnswer);
+  state.groupAnswers = { ...(attempt.groupAnswers || {}) };
+  state.answered = Boolean(
+    attempt.userAnswer || attempt.viewedAnswer || Object.keys(state.groupAnswers).length
+  );
   state.answerVisible = attempt.viewedAnswer;
 
-  if (!attempt.viewedAnswer && !attempt.userAnswer) return;
+  if (!attempt.viewedAnswer && !attempt.userAnswer && !Object.keys(state.groupAnswers).length) {
+    return;
+  }
 
   const q = state.questions[index];
   if (!q) return;
+
+  if (isGroupSet(q)) {
+    applyGroupSelectionStyles(q, state.groupAnswers);
+    if (attempt.viewedAnswer) {
+      applyGroupAnswerStyles(q, state.groupAnswers);
+      const stats = gradeGroupSet(q, state.groupAnswers);
+      const config = getGroupConfig(q);
+      const resultHtml = stats.gradable
+        ? `<div class="answer-result ${stats.correct === stats.gradable ? "correct" : "incorrect"}">${escapeHtml(groupResultLabel(q))}：答对 ${stats.correct} / ${stats.gradable} ${config?.unit || "题"}</div>`
+        : `<div class="answer-result muted">本题暂无完整标准答案</div>`;
+      revealAnswerPanel(resultHtml, { restoreDeepseek: attempt });
+      els.revealBtn.textContent = "已显示";
+      els.revealBtn.disabled = true;
+    }
+    return;
+  }
 
   if (attempt.isChoice && attempt.userAnswer) {
     const correctKey = normalizeAnswer(q.answer);
@@ -216,8 +529,31 @@ function computeSummary() {
     const q = state.questions[i];
     const attempt = state.attempts[i] || ensureAttempt(i);
     const gradableChoice = attempt.isChoice && normalizeAnswer(q.answer);
+    const gradableGroup = attempt.isGroupSet && attempt.groupGradable;
 
-    if (gradableChoice) {
+    if (gradableGroup) {
+      if (attempt.viewedAnswer) {
+        choiceAnswered += 1;
+        if (attempt.isCorrect) choiceCorrect += 1;
+        else {
+          choiceWrong += 1;
+          wrongItems.push({
+            subject: q.subject,
+            year: q.year,
+            number: q.number,
+            userAnswer: `${attempt.groupCorrect}/${attempt.groupGradable}`,
+            storedAnswer: `${attempt.groupGradable}/${attempt.groupGradable}`,
+            stem: q.stem,
+          });
+        }
+      } else if (Object.keys(attempt.groupAnswers || {}).length) {
+        choiceSkipped += 1;
+        skipped += 1;
+      } else {
+        choiceSkipped += 1;
+        skipped += 1;
+      }
+    } else if (gradableChoice) {
       if (attempt.userAnswer) {
         choiceAnswered += 1;
         if (attempt.isCorrect) choiceCorrect += 1;
@@ -244,7 +580,29 @@ function computeSummary() {
       else skipped += 1;
     }
 
-    if (attempt.deepseekAgrees === true || attempt.deepseekAgrees === false) {
+    if (attempt.isGroupSet && attempt.groupDeepseekItems) {
+      for (const item of q.groupItems) {
+        const ds = attempt.groupDeepseekItems[item.itemId];
+        if (!ds || (ds.deepseekAgrees !== true && ds.deepseekAgrees !== false)) continue;
+        deepseekChecked += 1;
+        if (ds.deepseekAgrees === false) {
+          deepseekDisagree += 1;
+          disagreeItems.push({
+            subject: q.subject,
+            year: q.year,
+            number: item.number ?? q.number,
+            storedAnswer: item.answer,
+            suggestedAnswer: ds.deepseekSuggested,
+            similarityScore: ds.similarityScore,
+            stem: item.prompt || q.stem,
+          });
+        }
+        if (ds.similarityScore !== null && ds.similarityScore !== undefined) {
+          similarityTotal += ds.similarityScore;
+          similarityCount += 1;
+        }
+      }
+    } else if (attempt.deepseekAgrees === true || attempt.deepseekAgrees === false) {
       deepseekChecked += 1;
       if (attempt.deepseekAgrees === false) {
         deepseekDisagree += 1;
@@ -477,17 +835,22 @@ async function loadSessionSummary(summary) {
   }
 }
 
-function buildComparePanel(q, resultHtml) {
-  const storedAnswer = q.answer
-    ? `<div class="answer-col-value">${formatAnswerText(q.answer)}</div>`
+function buildComparePanel(q, resultHtml, options = {}) {
+  const storedAnswer = isGroupSet(q)
+    ? formatGroupAnswerKey(q)
+    : q.answer;
+  const storedAnswerHtml = storedAnswer
+    ? `<div class="answer-col-value">${formatAnswerText(storedAnswer)}</div>`
     : `<div class="answer-col-value muted">暂无标准答案</div>`;
   const storedExplanation = q.explanation
     ? `<div class="explanation">${escapeHtml(q.explanation)}</div>`
     : "";
 
-  const deepseekBody = state.aiAvailable
-    ? `<div id="deepseekAnalysis" class="answer-col-body loading">DeepSeek 分析中…</div>`
-    : `<div class="answer-col-body muted">未配置 DeepSeek，无法对比分析</div>`;
+  const deepseekBody = !state.aiAvailable
+    ? `<div class="answer-col-body muted">未配置 DeepSeek，无法对比分析</div>`
+    : isGroupSet(q)
+      ? `<div id="deepseekGroupAnalysis" class="answer-col-body group-deepseek-list loading">DeepSeek 逐题分析中…</div>`
+      : `<div id="deepseekAnalysis" class="answer-col-body loading">DeepSeek 分析中…</div>`;
 
   return `
     ${resultHtml || ""}
@@ -497,7 +860,7 @@ function buildComparePanel(q, resultHtml) {
           <span class="answer-col-title">题库参考答案</span>
           <span class="answer-col-tag">来源标注</span>
         </div>
-        ${storedAnswer}
+        ${storedAnswerHtml}
         ${storedExplanation}
       </div>
       <div class="answer-col answer-col-deepseek">
@@ -567,6 +930,164 @@ function renderDeepSeekError(message) {
   }
 }
 
+function groupDeepseekItemHtml(item, data) {
+  const agrees = data.agrees_with_stored ?? data.deepseekAgrees;
+  const suggested = data.suggested_answer ?? data.deepseekSuggested ?? "";
+  const analysis = data.analysis ?? data.deepseekAnalysis ?? "";
+  const discrepancy = data.discrepancy_note ?? data.deepseekDiscrepancy ?? "";
+  const similarity = data.similarity_score ?? data.similarityScore;
+  const tagClass = agrees ? "tag-agree" : "tag-disagree";
+  const tagText = agrees
+    ? formatSimilarity(similarity)
+      ? `一致 · ${formatSimilarity(similarity)}`
+      : "与题库一致"
+    : formatSimilarity(similarity)
+      ? `不一致 · ${formatSimilarity(similarity)}`
+      : "与题库不一致";
+
+  let body = `<div class="group-deepseek-suggested">建议答案：${escapeHtml(suggested || "未能给出")}</div>`;
+  body += `<div class="analysis-text">${escapeHtml(analysis || "暂无解析").replaceAll("\n", "<br>")}</div>`;
+  if (discrepancy) {
+    body += `<div class="discrepancy-note">${escapeHtml(discrepancy).replaceAll("\n", "<br>")}</div>`;
+  }
+
+  return `
+    <article class="group-deepseek-item ${agrees ? "agree" : "disagree"}" data-item="${escapeHtml(item.itemId)}">
+      <div class="group-deepseek-head">
+        <span class="group-deepseek-label">${escapeHtml(item.label)}</span>
+        <span class="answer-col-tag ${tagClass}">${tagText}</span>
+      </div>
+      <div class="group-deepseek-body">${body}</div>
+    </article>`;
+}
+
+function updateGroupDeepseekBadge(itemsMap) {
+  const badgeEl = document.getElementById("deepseekBadge");
+  const deepseekCol = document.querySelector(".answer-col-deepseek");
+  if (!badgeEl || !deepseekCol) return;
+
+  const entries = Object.values(itemsMap || {}).filter(
+    (item) => item.deepseekAgrees === true || item.deepseekAgrees === false
+  );
+  if (!entries.length) return;
+
+  const agreeCount = entries.filter((item) => item.deepseekAgrees).length;
+  const allAgree = agreeCount === entries.length;
+  badgeEl.textContent = allAgree
+    ? `全部一致 · ${agreeCount}/${entries.length}`
+    : `部分不一致 · ${agreeCount}/${entries.length} 一致`;
+  badgeEl.className = `answer-col-tag ${allAgree ? "tag-agree" : "tag-disagree"}`;
+  badgeEl.classList.remove("hidden");
+  deepseekCol.classList.toggle("agree", allAgree);
+  deepseekCol.classList.toggle("disagree", !allAgree);
+}
+
+function renderDeepSeekGroupAnalysis(q, itemsMap) {
+  const container = document.getElementById("deepseekGroupAnalysis");
+  if (!container) return;
+
+  container.classList.remove("loading");
+  const gradableItems = q.groupItems.filter((item) => item.answer && item.id);
+  if (!gradableItems.length) {
+    container.innerHTML = `<div class="muted">本题暂无完整标准答案，无法逐题对比</div>`;
+    return;
+  }
+
+  container.innerHTML = gradableItems
+    .map((item) => {
+      const stored = itemsMap?.[item.itemId];
+      if (!stored) {
+        return `
+          <article class="group-deepseek-item" data-item="${escapeHtml(item.itemId)}">
+            <div class="group-deepseek-head">
+              <span class="group-deepseek-label">${escapeHtml(item.label)}</span>
+            </div>
+            <div class="group-deepseek-body muted">暂无分析结果</div>
+          </article>`;
+      }
+      return groupDeepseekItemHtml(item, stored);
+    })
+    .join("");
+
+  updateGroupDeepseekBadge(itemsMap);
+}
+
+async function loadDeepSeekGroupAnalysis(q) {
+  if (!state.aiAvailable) return;
+
+  const container = document.getElementById("deepseekGroupAnalysis");
+  if (!container) return;
+
+  const requestId = ++state.analyzeRequestId;
+  state.aiLoading = true;
+  const attempt = ensureAttempt(state.index);
+  attempt.groupDeepseekItems = attempt.groupDeepseekItems || {};
+  const answers = state.groupAnswers || {};
+  const items = q.groupItems.filter((item) => item.answer && item.id && answers[item.itemId]);
+
+  if (!items.length) {
+    container.classList.remove("loading");
+    container.innerHTML = `<div class="muted">无可分析子题</div>`;
+    state.aiLoading = false;
+    return;
+  }
+
+  container.innerHTML = items
+    .map(
+      (item) => `
+      <article class="group-deepseek-item pending" data-item="${escapeHtml(item.itemId)}">
+        <div class="group-deepseek-head">
+          <span class="group-deepseek-label">${escapeHtml(item.label)}</span>
+          <span class="answer-col-tag">分析中…</span>
+        </div>
+        <div class="group-deepseek-body loading">DeepSeek 分析中…</div>
+      </article>`
+    )
+    .join("");
+
+  try {
+    await Promise.all(
+      items.map(async (item) => {
+        try {
+          const data = await api(`api/questions/${item.id}/analyze`, { method: "POST" });
+          if (requestId !== state.analyzeRequestId) return;
+          attempt.groupDeepseekItems[item.itemId] = {
+            deepseekAgrees: data.agrees_with_stored,
+            deepseekSuggested: data.suggested_answer || null,
+            deepseekAnalysis: data.analysis || "",
+            deepseekDiscrepancy: data.discrepancy_note || "",
+            similarityScore: data.similarity_score ?? null,
+          };
+          const row = container.querySelector(
+            `.group-deepseek-item[data-item="${CSS.escape(item.itemId)}"]`
+          );
+          if (row) {
+            row.outerHTML = groupDeepseekItemHtml(item, data);
+          }
+        } catch (err) {
+          if (requestId !== state.analyzeRequestId) return;
+          const row = container.querySelector(
+            `.group-deepseek-item[data-item="${CSS.escape(item.itemId)}"]`
+          );
+          if (row) {
+            row.classList.remove("pending");
+            row.querySelector(".group-deepseek-body").innerHTML = `<div class="analysis-error">${escapeHtml(err.message)}</div>`;
+            row.querySelector(".answer-col-tag").textContent = "分析失败";
+            row.querySelector(".answer-col-tag").className = "answer-col-tag tag-error";
+          }
+        }
+      })
+    );
+    if (requestId !== state.analyzeRequestId) return;
+    updateGroupDeepseekBadge(attempt.groupDeepseekItems);
+    snapshotCurrentAttempt();
+  } finally {
+    if (requestId === state.analyzeRequestId) {
+      state.aiLoading = false;
+    }
+  }
+}
+
 async function loadDeepSeekAnalysis(questionId) {
   if (!state.aiAvailable) return;
 
@@ -593,22 +1114,96 @@ function revealAnswerPanel(resultHtml, options = {}) {
   if (!box || !q) return;
 
   box.className = "answer-panel";
-  box.innerHTML = buildComparePanel(q, resultHtml);
+  box.innerHTML = buildComparePanel(q, resultHtml, options);
   box.classList.remove("hidden");
 
   const attempt = options.restoreDeepseek;
-  if (attempt && (attempt.deepseekAgrees === true || attempt.deepseekAgrees === false)) {
-    renderDeepSeekAnalysis({
-      suggested_answer: attempt.deepseekSuggested,
-      analysis: attempt.deepseekAnalysis || "",
-      discrepancy_note: attempt.deepseekDiscrepancy || "",
-      agrees_with_stored: attempt.deepseekAgrees,
-      similarity_score: attempt.similarityScore,
-    });
+  if (attempt) {
+    if (isGroupSet(q) && attempt.groupDeepseekItems && Object.keys(attempt.groupDeepseekItems).length) {
+      renderDeepSeekGroupAnalysis(q, attempt.groupDeepseekItems);
+      return;
+    }
+    if (!isGroupSet(q) && (attempt.deepseekAgrees === true || attempt.deepseekAgrees === false)) {
+      renderDeepSeekAnalysis({
+        suggested_answer: attempt.deepseekSuggested,
+        analysis: attempt.deepseekAnalysis || "",
+        discrepancy_note: attempt.deepseekDiscrepancy || "",
+        agrees_with_stored: attempt.deepseekAgrees,
+        similarity_score: attempt.similarityScore,
+      });
+      return;
+    }
+  }
+
+  if (isGroupSet(q)) {
+    loadDeepSeekGroupAnalysis(q);
     return;
   }
 
   loadDeepSeekAnalysis(q.id);
+}
+
+function revealGroupAnswer() {
+  const q = state.questions[state.index];
+  if (!q || !isGroupSet(q)) return;
+
+  state.answerVisible = true;
+  applyGroupAnswerStyles(q, state.groupAnswers || {});
+  const stats = gradeGroupSet(q, state.groupAnswers || {});
+  const config = getGroupConfig(q);
+  snapshotCurrentAttempt();
+  const resultHtml = stats.gradable
+    ? `<div class="answer-result ${stats.correct === stats.gradable ? "correct" : "incorrect"}">${escapeHtml(groupResultLabel(q))}：答对 ${stats.correct} / ${stats.gradable} ${config?.unit || "题"}</div>`
+    : `<div class="answer-result muted">本题暂无完整标准答案</div>`;
+  revealAnswerPanel(resultHtml);
+  els.revealBtn.textContent = "已显示";
+  els.revealBtn.disabled = true;
+}
+
+function selectGroupOption(itemId, key) {
+  if (state.answerVisible) return;
+
+  state.groupAnswers = state.groupAnswers || {};
+  state.groupAnswers[itemId] = key;
+  state.answered = true;
+
+  const q = state.questions[state.index];
+  applyGroupSelectionStyles(q, state.groupAnswers);
+  snapshotCurrentAttempt();
+
+  if (allGroupItemsAnswered(q, state.groupAnswers)) {
+    revealGroupAnswer();
+  }
+}
+
+function applyGroupSelectionStyles(q, answers) {
+  if (!isGroupSet(q)) return;
+  for (const item of q.groupItems) {
+    const row = els.card.querySelector(`.group-item[data-item="${CSS.escape(item.itemId)}"]`);
+    if (!row) continue;
+    row.querySelectorAll(".group-option").forEach((el) => {
+      el.classList.toggle("selected", answers?.[item.itemId] === el.dataset.key);
+    });
+  }
+}
+
+function applyGroupAnswerStyles(q, answers) {
+  if (!isGroupSet(q)) return;
+  for (const item of q.groupItems) {
+    const row = els.card.querySelector(`.group-item[data-item="${CSS.escape(item.itemId)}"]`);
+    if (!row) continue;
+    const correctKey = item.answer;
+    row.querySelectorAll(".group-option").forEach((el) => {
+      el.classList.add("disabled");
+      const optionKey = el.dataset.key;
+      const userKey = answers?.[item.itemId];
+      if (userKey && optionKey === userKey) {
+        el.classList.add(userKey === correctKey ? "correct" : "incorrect");
+      } else if (correctKey && optionKey === correctKey) {
+        el.classList.add("correct");
+      }
+    });
+  }
 }
 
 function selectOption(key) {
@@ -648,16 +1243,104 @@ function selectOption(key) {
   els.revealBtn.disabled = true;
 }
 
+function renderGroupQuestion(q) {
+  const config = getGroupConfig(q);
+  const sourceClass = q.source === "bb" ? "bb" : q.source === "pay" ? "pay" : "";
+  const passage = (q.stem || "").replace(config.stripPrefix, "");
+  const pool = q.choicePool;
+  const poolHtml =
+    q.groupKind === "dialogue" && pool
+      ? `
+    <div class="passage-label">【选项池】</div>
+    <div class="choice-pool">
+      ${Object.keys(pool)
+        .sort()
+        .map((key) => `<span class="pool-option"><strong>${key}.</strong> ${escapeHtml(pool[key])}</span>`)
+        .join("")}
+    </div>`
+      : "";
+
+  const itemsHtml = q.groupItems
+    .map((item) => {
+      const options = item.options || {};
+      const optionsHtml = Object.keys(options)
+        .sort()
+        .map(
+          (key) => `
+          <div class="option selectable group-option" data-item="${escapeHtml(item.itemId)}" data-key="${key}" role="button" tabindex="0">
+            <span class="option-key">${key}</span>
+            <span class="option-text">${escapeHtml(options[key])}</span>
+          </div>`
+        )
+        .join("");
+      const promptHtml =
+        q.groupKind === "reading"
+          ? `<div class="group-item-prompt">${escapeHtml(item.prompt)}</div>`
+          : "";
+      return `
+        <section class="group-item" data-item="${escapeHtml(item.itemId)}">
+          <div class="group-item-label">${escapeHtml(item.label)}</div>
+          ${promptHtml}
+          <div class="options group-options">${optionsHtml}</div>
+        </section>`;
+    })
+    .join("");
+
+  els.card.innerHTML = `
+    <div class="meta">
+      <span class="tag">${escapeHtml(q.subject)}</span>
+      <span class="tag">${q.year} 年</span>
+      <span class="tag">${escapeHtml(config.typeName)}</span>
+      <span class="tag">第 ${escapeHtml(String(q.number))} 题 · ${q.groupItems.length} ${config.unit}</span>
+      <span class="tag tag-type">${escapeHtml(config.typeName)}</span>
+      <span class="tag tag-source ${sourceClass}">${escapeHtml(q.source_label || "未知来源")}</span>
+    </div>
+    <div class="passage-label">${escapeHtml(config.materialTag)}</div>
+    <div class="stem group-passage">${escapeHtml(passage)}</div>
+    ${poolHtml}
+    <div class="passage-label">【作答】请逐${config.unit === "题" ? "题" : "空"}选择答案，全部选完后自动核对</div>
+    <div class="group-items">${itemsHtml}</div>
+    <div id="answerBox" class="answer-panel hidden"></div>
+  `;
+}
+
 function renderQuestion() {
   const q = state.questions[state.index];
   if (!q) return;
 
   state.answerVisible = false;
   state.selectedAnswer = null;
+  state.groupAnswers = {};
   state.answered = false;
   state.aiLoading = false;
   state.analyzeRequestId += 1;
   updateProgress();
+
+  if (isGroupSet(q)) {
+    const attempt = state.attempts[state.index];
+    if (attempt) {
+      state.groupAnswers = { ...(attempt.groupAnswers || {}) };
+      state.answerVisible = attempt.viewedAnswer;
+      state.answered = Boolean(
+        attempt.viewedAnswer || Object.keys(state.groupAnswers).length
+      );
+    }
+
+    els.revealBtn.textContent = state.answerVisible ? "已显示" : "显示答案";
+    els.revealBtn.disabled = state.answerVisible;
+    els.revealBtn.classList.remove("hidden");
+
+    renderGroupQuestion(q);
+    if (state.answerVisible) {
+      restoreAttempt(state.index);
+    } else {
+      applyGroupSelectionStyles(q, state.groupAnswers);
+    }
+
+    els.prevBtn.disabled = state.index === 0;
+    els.nextBtn.textContent = state.index === state.questions.length - 1 ? "查看汇总 ✓" : "下一题 →";
+    return;
+  }
 
   const choice = isChoiceQuestion(q);
   els.revealBtn.textContent = "显示答案";
@@ -684,7 +1367,7 @@ function renderQuestion() {
       <span class="tag">${escapeHtml(q.subject)}</span>
       <span class="tag">${q.year} 年</span>
       <span class="tag">第 ${q.number} 题</span>
-      <span class="tag tag-type">${TYPE_LABELS[q.question_type] || q.question_type}</span>
+      <span class="tag tag-type">${escapeHtml(questionDisplayType(q))}</span>
       <span class="tag tag-source ${sourceClass}">${escapeHtml(q.source_label || "未知来源")}</span>
     </div>
     <div class="stem">${escapeHtml(q.stem)}</div>
@@ -698,6 +1381,14 @@ function renderQuestion() {
 }
 
 function showAnswer() {
+  const q = state.questions[state.index];
+  if (!q) return;
+
+  if (isGroupSet(q)) {
+    revealGroupAnswer();
+    return;
+  }
+
   state.answerVisible = true;
   revealAnswerPanel("");
   snapshotCurrentAttempt();
@@ -741,6 +1432,7 @@ async function loadFilters() {
     els.subject.appendChild(opt);
   });
   await refreshYears();
+  refreshTypeOptions();
 }
 
 function filterParams() {
@@ -802,11 +1494,11 @@ async function startQuiz() {
   params.set("count", els.count.value || "10");
   if (els.subject.value) params.set("subject", els.subject.value);
   if (els.year.value) params.set("year", els.year.value);
-  if (els.type.value) params.set("question_type", els.type.value);
+  appendTypeFilter(params);
   if (els.source.value) params.set("source", els.source.value);
 
   try {
-    const questions = await api(`api/questions/random?${params}`);
+    const questions = groupMaterialQuestions(await api(`api/questions/random?${params}`));
     state.questions = questions;
     state.index = 0;
     state.attempts = [];
@@ -828,6 +1520,7 @@ async function searchQuestions() {
   const params = new URLSearchParams({ keyword, limit: "20" });
   if (els.subject.value) params.set("subject", els.subject.value);
   if (els.year.value) params.set("year", els.year.value);
+  appendTypeFilter(params);
   if (els.source.value) params.set("source", els.source.value);
 
   try {
@@ -841,6 +1534,7 @@ async function searchQuestions() {
 }
 
 async function onFilterChange() {
+  refreshTypeOptions();
   await refreshYears();
   await loadStats();
 }
@@ -848,6 +1542,10 @@ async function onFilterChange() {
 els.card.addEventListener("click", (e) => {
   const option = e.target.closest(".option.selectable:not(.disabled)");
   if (!option?.dataset.key) return;
+  if (option.dataset.item) {
+    selectGroupOption(option.dataset.item, option.dataset.key);
+    return;
+  }
   selectOption(option.dataset.key);
 });
 
@@ -856,6 +1554,10 @@ els.card.addEventListener("keydown", (e) => {
   if (!option?.dataset.key) return;
   if (e.key === "Enter" || e.key === " ") {
     e.preventDefault();
+    if (option.dataset.item) {
+      selectGroupOption(option.dataset.item, option.dataset.key);
+      return;
+    }
     selectOption(option.dataset.key);
   }
 });

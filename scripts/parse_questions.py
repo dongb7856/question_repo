@@ -18,7 +18,10 @@ class QuestionType(str, Enum):
 
 SECTION_TYPE_MAP: list[tuple[re.Pattern[str], QuestionType]] = [
     (
-        re.compile(r"单项选择|选择题|词汇和语法|阅读理解|完形填空|语音题|日常对话"),
+        re.compile(
+            r"单项选择|选择题|词汇和语法|阅读理解|完形|完型|Cloze|"
+            r"语音题|日常对话|Dialogue"
+        ),
         QuestionType.CHOICE,
     ),
     (re.compile(r"问答题|辨析题"), QuestionType.SHORT_ANSWER),
@@ -115,23 +118,46 @@ SECTION_HEADER = re.compile(
     r"(?:\s*每小题\d+分.*)?$"
 )
 
+ENGLISH_ROMAN_SECTION = re.compile(
+    r"^[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩI]+[\.．]\s*(?:"
+    r"Phonetics|Vocabulary|Cloze|Reading|Daily\s+Conversation|Writing"
+    r")",
+    re.I,
+)
+
+STANDALONE_SECTION_TITLES = frozenset(
+    {
+        "简答题",
+        "论述题",
+        "选择题",
+        "阅读理解",
+        "完形填空",
+        "完型填空",
+        "语音题",
+        "日常对话题",
+        "作文",
+    }
+)
+
 
 def detect_section_type(line: str) -> QuestionType | None:
     cleaned = line.strip()
     if not cleaned or OPTION_LINE_HINT.match(cleaned):
         return None
-    if re.search(r"Reading Comprehension|阅读理解", cleaned, re.I):
+    if ENGLISH_ROMAN_SECTION.match(cleaned):
+        return QuestionType.CHOICE
+    if cleaned in STANDALONE_SECTION_TITLES:
+        for pattern, qtype in SECTION_TYPE_MAP:
+            if pattern.search(cleaned):
+                return qtype
+    # 爱真题英语：节标题无「一、」前缀，且须为短行，避免正文误命中
+    if len(cleaned) <= 24 and re.search(
+        r"Reading Comprehension|阅读理解|完形|完型|Cloze|日常对话|Daily\s+Conversation",
+        cleaned,
+        re.I,
+    ):
         return QuestionType.CHOICE
     if SECTION_HEADER.match(cleaned):
-        for pattern, qtype in SECTION_TYPE_MAP:
-            if pattern.search(cleaned):
-                return qtype
-    # 爱真题英语：节标题无「一、」前缀
-    if len(cleaned) <= 24:
-        for pattern, qtype in SECTION_TYPE_MAP:
-            if pattern.search(cleaned):
-                return qtype
-    if cleaned in ("简答题", "论述题", "选择题", "阅读理解", "语音题", "日常对话题", "作文"):
         for pattern, qtype in SECTION_TYPE_MAP:
             if pattern.search(cleaned):
                 return qtype
@@ -270,7 +296,10 @@ def parse_choice_question(
         stem_part = (stem_part + "\n" + "\n".join(remainder)).strip()
 
     if not stem_part:
-        stem_part = section_title or f"第{number}题"
+        if re.search(r"完形|完型|Cloze", section_title, re.I):
+            stem_part = f"【{number}】"
+        else:
+            stem_part = section_title or f"第{number}题"
 
     if not stem_part and not options:
         return None
@@ -288,8 +317,40 @@ def parse_choice_question(
     )
 
 
+def passage_context_kind(section_title: str) -> str:
+    if re.search(r"阅读|Reading Comprehension", section_title, re.I):
+        return "reading"
+    if re.search(r"完形|完型|Cloze", section_title, re.I):
+        return "cloze"
+    if re.search(r"日常对话|Daily\s+Conversation", section_title, re.I):
+        return "dialogue"
+    return ""
+
+
+def is_dialogue_material_line(line: str) -> bool:
+    stripped = line.strip()
+    if re.search(r"【[RG]\d+】", stripped):
+        return True
+    if re.search(
+        r"(?:Clerk|Secretary|Mary|John|Lisa|Henry|Brown|Guest|Waiter|Customer|David|Yang|"
+        r"Man|Woman|Operator|Receptionist)[：:]",
+        stripped,
+        re.I,
+    ):
+        return True
+    if re.search(r"\(\s*At\s+", stripped):
+        return True
+    if len(re.findall(r"[A-H][\.．、]", stripped)) >= 2:
+        return True
+    return False
+
+
 def is_reading_section(section_title: str) -> bool:
-    return bool(re.search(r"阅读|Reading Comprehension", section_title, re.I))
+    return passage_context_kind(section_title) == "reading"
+
+
+def is_shared_passage_section(section_title: str) -> bool:
+    return bool(passage_context_kind(section_title))
 
 
 def is_passage_boundary(line: str) -> bool:
@@ -301,15 +362,22 @@ def is_reading_directions(line: str) -> bool:
     return stripped.startswith("Directions:") or stripped.startswith("Mark your answer")
 
 
-def is_reading_passage_line(line: str) -> bool:
+def is_shared_passage_line(line: str, context_kind: str = "") -> bool:
     stripped = line.strip()
     if not stripped:
         return False
-    if is_passage_boundary(stripped):
-        return True
-    if is_reading_directions(stripped):
-        return False
     if QUESTION_START.match(stripped):
+        return False
+    if context_kind == "reading" and is_passage_boundary(stripped):
+        return True
+    if context_kind == "dialogue":
+        if re.match(r"^[A-H][\.．、]", stripped):
+            return True
+        if re.match(r"^[a-z]", stripped):
+            return True
+        if is_dialogue_material_line(stripped):
+            return True
+    if is_reading_directions(stripped):
         return False
     if OPTION_LINE_HINT.match(stripped):
         return False
@@ -326,14 +394,84 @@ def is_reading_passage_line(line: str) -> bool:
     return True
 
 
-def attach_reading_passage(stem: str, passage: str) -> str:
+def is_reading_passage_line(line: str) -> bool:
+    return is_shared_passage_line(line, "reading")
+
+
+def attach_passage_context(stem: str, passage: str, kind: str) -> str:
     passage = passage.strip()
     stem = stem.strip()
     if not passage:
         return stem
     if passage in stem:
         return stem
-    return f"【阅读材料】\n{passage}\n\n【题目】\n{stem}"
+    labels = {
+        "reading": "【阅读材料】",
+        "cloze": "【完形短文】",
+        "dialogue": "【对话材料】",
+    }
+    label = labels.get(kind, "【材料】")
+    return f"{label}\n{passage}\n\n【题目】\n{stem}"
+
+
+def attach_reading_passage(stem: str, passage: str) -> str:
+    return attach_passage_context(stem, passage, "reading")
+
+
+INLINE_DIALOGUE_BLANK = re.compile(r"(?<![\d])(5[6-9]|60)(?![\d])")
+
+
+def synthesize_inline_dialogue_questions(
+    passage: str,
+    section_title: str,
+    existing_numbers: set[int],
+) -> list[ParsedQuestion]:
+    """2023/2024 对话题：正文内嵌 56–60 空白，无独立题号行。"""
+    passage = passage.strip()
+    if not passage:
+        return []
+
+    blank_nums = sorted(
+        {
+            int(m.group(1))
+            for m in INLINE_DIALOGUE_BLANK.finditer(passage)
+            if 56 <= int(m.group(1)) <= 60
+        }
+    )
+    if len(blank_nums) < 3:
+        return []
+
+    questions: list[ParsedQuestion] = []
+    for number in blank_nums:
+        if number in existing_numbers:
+            continue
+        stem = attach_passage_context(f"【{number}】", passage, "dialogue")
+        questions.append(
+            ParsedQuestion(
+                number=number,
+                question_type=QuestionType.CHOICE,
+                section_title=section_title,
+                stem=stem,
+                options=None,
+                answer=None,
+                explanation=None,
+                raw_text=stem,
+            )
+        )
+    return questions
+
+
+def flush_inline_dialogue_questions(
+    questions: list[ParsedQuestion],
+    section_title: str,
+    shared_passage: str,
+    passage_buffer: list[str],
+) -> None:
+    passage = shared_passage or "\n\n".join(passage_buffer).strip()
+    existing = {q.number for q in questions}
+    questions.extend(
+        synthesize_inline_dialogue_questions(passage, section_title, existing)
+    )
 
 
 def infer_subjective_type(section_title: str, stem: str) -> QuestionType:
@@ -355,7 +493,8 @@ def parse_text_content(text: str) -> list[ParsedQuestion]:
     current_section = ""
     current_type = QuestionType.CHOICE
     subjective_base: int | None = None
-    reading_passage = ""
+    context_kind = ""
+    shared_passage = ""
     passage_buffer: list[str] = []
     i = 0
 
@@ -367,9 +506,15 @@ def parse_text_content(text: str) -> list[ParsedQuestion]:
 
         section_type = detect_section_type(line)
         if section_type:
-            if not is_reading_section(line):
-                reading_passage = ""
+            new_kind = passage_context_kind(line)
+            if context_kind == "dialogue" and new_kind != "dialogue":
+                flush_inline_dialogue_questions(
+                    questions, current_section, shared_passage, passage_buffer
+                )
+            if new_kind != context_kind:
+                shared_passage = ""
                 passage_buffer = []
+            context_kind = new_kind
             current_section = line
             current_type = section_type
             if section_type == QuestionType.CHOICE:
@@ -383,19 +528,19 @@ def parse_text_content(text: str) -> list[ParsedQuestion]:
             i += 1
             continue
 
-        if is_reading_section(current_section):
+        if context_kind:
             if line in ("【正确答案】", "【正确答案】:", "【正确答案】："):
                 if passage_buffer:
-                    reading_passage = "\n\n".join(passage_buffer).strip()
+                    shared_passage = "\n\n".join(passage_buffer).strip()
                     passage_buffer = []
                 i += 1
                 continue
-            if is_passage_boundary(line):
+            if context_kind == "reading" and is_passage_boundary(line):
                 passage_buffer = [line.strip()]
-                reading_passage = ""
+                shared_passage = ""
                 i += 1
                 continue
-            if is_reading_passage_line(line):
+            if is_shared_passage_line(line, context_kind):
                 passage_buffer.append(line.strip())
                 i += 1
                 continue
@@ -404,6 +549,10 @@ def parse_text_content(text: str) -> list[ParsedQuestion]:
         if not m:
             i += 1
             continue
+
+        if context_kind and passage_buffer:
+            shared_passage = "\n\n".join(passage_buffer).strip()
+            passage_buffer = []
 
         raw_number = int(m.group(1))
         if (
@@ -427,7 +576,7 @@ def parse_text_content(text: str) -> list[ParsedQuestion]:
                 break
             if QUESTION_START.match(nxt):
                 break
-            if is_reading_section(current_section) and is_reading_passage_line(nxt):
+            if context_kind and is_shared_passage_line(nxt, context_kind):
                 break
             if ANSWER_REF_BLOCK.match(nxt):
                 break
@@ -444,9 +593,9 @@ def parse_text_content(text: str) -> list[ParsedQuestion]:
         if qtype == QuestionType.CHOICE:
             q = parse_choice_question(number, current_section, rest, body_lines)
             if q:
-                active_passage = reading_passage or "\n\n".join(passage_buffer).strip()
-                if is_reading_section(current_section) and active_passage:
-                    q.stem = attach_reading_passage(q.stem, active_passage)
+                active_passage = shared_passage or "\n\n".join(passage_buffer).strip()
+                if context_kind and active_passage:
+                    q.stem = attach_passage_context(q.stem, active_passage, context_kind)
                 questions.append(q)
         else:
             block = [rest, *body_lines]
@@ -481,6 +630,11 @@ def parse_text_content(text: str) -> list[ParsedQuestion]:
             )
 
         i = j
+
+    if context_kind == "dialogue":
+        flush_inline_dialogue_questions(
+            questions, current_section, shared_passage, passage_buffer
+        )
 
     return deduplicate_questions(questions)
 

@@ -232,8 +232,13 @@ def merge_answers(questions: list[ParsedQuestion], answers: dict[int, dict[str, 
         info = answers.get(q.number)
         if not info:
             continue
-        if info.get("answer") and not q.answer:
-            q.answer = info["answer"]
+        ans = info.get("answer")
+        if ans and not q.answer:
+            # 跳过「56、 57、 58、 59、 60、」这类占位答案行
+            if re.fullmatch(r"[\d、.\s]+", ans.strip()):
+                ans = None
+            else:
+                q.answer = ans
         if info.get("explanation") and not q.explanation:
             q.explanation = info["explanation"]
 
