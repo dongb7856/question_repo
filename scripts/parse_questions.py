@@ -17,12 +17,17 @@ class QuestionType(str, Enum):
 
 
 SECTION_TYPE_MAP: list[tuple[re.Pattern[str], QuestionType]] = [
-    (re.compile(r"选择|单项选择"), QuestionType.CHOICE),
+    (
+        re.compile(r"单项选择|选择题|词汇和语法|阅读理解|完形填空|语音题|日常对话"),
+        QuestionType.CHOICE,
+    ),
     (re.compile(r"问答题|辨析题"), QuestionType.SHORT_ANSWER),
     (re.compile(r"简答"), QuestionType.SHORT_ANSWER),
-    (re.compile(r"论述"), QuestionType.ESSAY),
+    (re.compile(r"论述|写作|翻译"), QuestionType.ESSAY),
     (re.compile(r"案例"), QuestionType.CASE_ANALYSIS),
 ]
+
+OPTION_LINE_HINT = re.compile(r"^(?:[（(][A-D][）)]|[A-D][\.．、])")
 
 FOOTER_MARKERS = (
     "注：篇幅有限",
@@ -32,15 +37,15 @@ FOOTER_MARKERS = (
 )
 
 QUESTION_START = re.compile(
-    r"^(\d+)[、.．]\s*(.+)$"
+    r"^(\d+)[、.．]\s*(.*)$"
 )
 OPTION_INLINE = re.compile(
-    r"([A-D])[．.、]\s*([^A-D．.]+?)(?=\s+[A-D][．.、]|$)"
+    r"([A-D])[．.、]\s*(.+?)(?=\s+[A-D][．.、]|$)"
 )
 OPTION_LINE_AIPTA = re.compile(r"^([A-D])[．.、]\s*(.+)$")
 OPTION_LINE_BARE = re.compile(r"^([A-D])([^\s\.．、（(].+)$")
 OPTION_LINE_PAREN = re.compile(r"^[（(]([A-D])[）)]\s*(.+)$")
-ANSWER_TAG_LINE = re.compile(r"^【(?:正确)?答案】[:：]?\s*([A-D])\s*$")
+ANSWER_TAG_LINE = re.compile(r"^【(?:正确)?答案】[:：]?\s*([A-H])\s*$")
 ANSWER_IN_STEM = re.compile(r"[（(]\s*([A-D])\s*[）)]\s*$")
 ANSWER_IN_STEM_LOOSE = re.compile(r"[（(]\s*([A-D])\s*[）)]")
 ANSWER_REF_BLOCK = re.compile(r"^【参考答案】[:：]?\s*$")
@@ -92,6 +97,7 @@ def extract_main_content(text: str) -> str:
         r"一、选择题",
         r"第Ⅰ卷",
         r"^选择题\s*$",
+        r"词汇和语法结构",
     )
     for pattern in markers:
         m = re.search(pattern, text, flags=re.MULTILINE)
@@ -112,13 +118,18 @@ SECTION_HEADER = re.compile(
 
 def detect_section_type(line: str) -> QuestionType | None:
     cleaned = line.strip()
-    if not cleaned:
+    if not cleaned or OPTION_LINE_HINT.match(cleaned):
         return None
     if SECTION_HEADER.match(cleaned):
         for pattern, qtype in SECTION_TYPE_MAP:
             if pattern.search(cleaned):
                 return qtype
-    if cleaned in ("简答题", "论述题", "选择题"):
+    # 爱真题英语：节标题无「一、」前缀
+    if len(cleaned) <= 24:
+        for pattern, qtype in SECTION_TYPE_MAP:
+            if pattern.search(cleaned):
+                return qtype
+    if cleaned in ("简答题", "论述题", "选择题", "阅读理解", "语音题", "日常对话题", "作文"):
         for pattern, qtype in SECTION_TYPE_MAP:
             if pattern.search(cleaned):
                 return qtype
@@ -146,12 +157,19 @@ def parse_options_from_line(line: str) -> dict[str, str]:
 def parse_options_from_lines(lines: list[str]) -> tuple[dict[str, str], list[str]]:
     options: dict[str, str] = {}
     remainder: list[str] = []
+    last_option_key: str | None = None
+
     for line in lines:
+        stripped = line.strip()
         line_opts = parse_options_from_line(line)
         if line_opts:
             options.update(line_opts)
+            last_option_key = max(line_opts)
+        elif last_option_key and stripped and not stripped.startswith("【"):
+            options[last_option_key] = f"{options[last_option_key]} {stripped}".strip()
         else:
             remainder.append(line)
+            last_option_key = None
     return options, remainder
 
 
@@ -234,6 +252,8 @@ def parse_choice_question(
             if answer is None:
                 answer = am.group(1)
             continue
+        if stripped in ("【正确答案】", "【正确答案】:", "【正确答案】："):
+            continue
         if stripped.startswith("【试题解析】"):
             explanation = re.sub(r"^【试题解析】[:：]?\s*", "", stripped).strip()
             continue
@@ -248,6 +268,9 @@ def parse_choice_question(
         stem_part = (stem_part + "\n" + "\n".join(remainder)).strip()
 
     if not stem_part:
+        stem_part = section_title or f"第{number}题"
+
+    if not stem_part and not options:
         return None
 
     raw_parts = [first_line, *following_lines]
