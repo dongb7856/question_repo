@@ -11,6 +11,20 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
+
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    load_dotenv = None
+
+from .llm import (  # noqa: E402
+    LlmApiError,
+    LlmNotConfiguredError,
+    analyze_question,
+    deepseek_config,
+    summarize_session,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -19,6 +33,17 @@ from db.connection import connect, init_schema  # noqa: E402
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 ROOT_PATH = os.environ.get("ROOT_PATH", "").rstrip("/")
+
+
+def load_env() -> None:
+    if load_dotenv is None:
+        return
+    for path in (ROOT / ".env", ROOT / ".env.local", ROOT / ".env.production"):
+        if path.exists():
+            load_dotenv(path)
+
+
+load_env()
 
 app = FastAPI(
     title="专升本真题练习",
@@ -265,6 +290,71 @@ def search_questions(
         rows = cur.fetchall()
 
     return [row_to_question(row) for row in rows]
+
+
+def fetch_question(question_id: int) -> dict[str, Any]:
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT q.id, s.name, p.year, q.number, q.question_type::text,
+                   q.section_title, q.stem, q.options, q.answer, q.explanation,
+                   p.source_file
+            FROM questions q
+            JOIN exam_papers p ON p.id = q.exam_paper_id
+            JOIN subjects s ON s.id = p.subject_id
+            WHERE q.id = %s
+            """,
+            (question_id,),
+        )
+        row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="题目不存在")
+    return row_to_question(row)
+
+
+@app.get("/api/ai/status")
+def ai_status() -> dict[str, Any]:
+    cfg = deepseek_config()
+    return {
+        "available": cfg is not None,
+        "model": cfg[2] if cfg else None,
+    }
+
+
+@app.post("/api/questions/{question_id}/analyze")
+def analyze_question_api(question_id: int) -> dict[str, Any]:
+    question = fetch_question(question_id)
+    try:
+        return analyze_question(question)
+    except LlmNotConfiguredError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except LlmApiError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+class SessionSummaryRequest(BaseModel):
+    total: int = Field(ge=0)
+    choice_answered: int = Field(ge=0)
+    choice_correct: int = Field(ge=0)
+    choice_wrong: int = Field(ge=0)
+    accuracy: int | None = None
+    subjective_total: int = Field(ge=0)
+    subjective_viewed: int = Field(ge=0)
+    skipped: int = Field(ge=0)
+    deepseek_checked: int = Field(ge=0)
+    deepseek_disagree: int = Field(ge=0)
+    avg_similarity: int | None = None
+    duration_seconds: int = Field(ge=0)
+
+
+@app.post("/api/session/summary")
+def session_summary_api(body: SessionSummaryRequest) -> dict[str, Any]:
+    try:
+        return summarize_session(body.model_dump())
+    except LlmNotConfiguredError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except LlmApiError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 @app.get("/")

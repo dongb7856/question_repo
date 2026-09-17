@@ -84,7 +84,9 @@
             <div id="progressFill" class="progress-fill"></div>
           </div>
         </div>
-        <button id="revealBtn" class="btn btn-secondary btn-sm">显示答案</button>
+        <div class="quiz-toolbar-actions">
+          <button id="revealBtn" class="btn btn-secondary btn-sm">显示答案</button>
+        </div>
       </div>
 
       <article id="card" class="card"></article>
@@ -94,6 +96,15 @@
         <button id="nextBtn" class="btn btn-primary">下一题 →</button>
       </div>
     </main>
+
+    <section id="quizSummary" class="panel quiz-summary hidden">
+      <div class="section-head">
+        <h2>练习汇总</h2>
+        <span class="hint">基于本轮作答与 DeepSeek 对比</span>
+      </div>
+      <div id="summaryContent" class="summary-content"></div>
+      <button id="restartBtn" class="btn btn-primary btn-restart">再练一轮</button>
+    </section>
 
     <section id="results" class="results hidden">
       <div class="section-head">
