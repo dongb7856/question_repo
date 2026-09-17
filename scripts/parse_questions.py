@@ -120,6 +120,8 @@ def detect_section_type(line: str) -> QuestionType | None:
     cleaned = line.strip()
     if not cleaned or OPTION_LINE_HINT.match(cleaned):
         return None
+    if re.search(r"Reading Comprehension|阅读理解", cleaned, re.I):
+        return QuestionType.CHOICE
     if SECTION_HEADER.match(cleaned):
         for pattern, qtype in SECTION_TYPE_MAP:
             if pattern.search(cleaned):
@@ -286,6 +288,54 @@ def parse_choice_question(
     )
 
 
+def is_reading_section(section_title: str) -> bool:
+    return bool(re.search(r"阅读|Reading Comprehension", section_title, re.I))
+
+
+def is_passage_boundary(line: str) -> bool:
+    return bool(re.match(r"^Passage\s+(One|Two|Three|Four|Five|\d+)\b", line.strip(), re.I))
+
+
+def is_reading_directions(line: str) -> bool:
+    stripped = line.strip()
+    return stripped.startswith("Directions:") or stripped.startswith("Mark your answer")
+
+
+def is_reading_passage_line(line: str) -> bool:
+    stripped = line.strip()
+    if not stripped:
+        return False
+    if is_passage_boundary(stripped):
+        return True
+    if is_reading_directions(stripped):
+        return False
+    if QUESTION_START.match(stripped):
+        return False
+    if OPTION_LINE_HINT.match(stripped):
+        return False
+    if ANSWER_TAG_LINE.match(stripped):
+        return False
+    if stripped.startswith("【"):
+        return False
+    if detect_section_type(stripped):
+        return False
+    if re.match(r"^第[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩI]+卷", stripped):
+        return False
+    if re.match(r"^[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩI]+[\.．]", stripped):
+        return False
+    return True
+
+
+def attach_reading_passage(stem: str, passage: str) -> str:
+    passage = passage.strip()
+    stem = stem.strip()
+    if not passage:
+        return stem
+    if passage in stem:
+        return stem
+    return f"【阅读材料】\n{passage}\n\n【题目】\n{stem}"
+
+
 def infer_subjective_type(section_title: str, stem: str) -> QuestionType:
     joined = f"{section_title}\n{stem}"
     if re.search(r"辨析", joined):
@@ -305,6 +355,8 @@ def parse_text_content(text: str) -> list[ParsedQuestion]:
     current_section = ""
     current_type = QuestionType.CHOICE
     subjective_base: int | None = None
+    reading_passage = ""
+    passage_buffer: list[str] = []
     i = 0
 
     while i < len(lines):
@@ -315,6 +367,9 @@ def parse_text_content(text: str) -> list[ParsedQuestion]:
 
         section_type = detect_section_type(line)
         if section_type:
+            if not is_reading_section(line):
+                reading_passage = ""
+                passage_buffer = []
             current_section = line
             current_type = section_type
             if section_type == QuestionType.CHOICE:
@@ -327,6 +382,23 @@ def parse_text_content(text: str) -> list[ParsedQuestion]:
         if line.startswith("第Ⅱ卷") or line.startswith("第I卷"):
             i += 1
             continue
+
+        if is_reading_section(current_section):
+            if line in ("【正确答案】", "【正确答案】:", "【正确答案】："):
+                if passage_buffer:
+                    reading_passage = "\n\n".join(passage_buffer).strip()
+                    passage_buffer = []
+                i += 1
+                continue
+            if is_passage_boundary(line):
+                passage_buffer = [line.strip()]
+                reading_passage = ""
+                i += 1
+                continue
+            if is_reading_passage_line(line):
+                passage_buffer.append(line.strip())
+                i += 1
+                continue
 
         m = QUESTION_START.match(line)
         if not m:
@@ -355,6 +427,8 @@ def parse_text_content(text: str) -> list[ParsedQuestion]:
                 break
             if QUESTION_START.match(nxt):
                 break
+            if is_reading_section(current_section) and is_reading_passage_line(nxt):
+                break
             if ANSWER_REF_BLOCK.match(nxt):
                 break
             body_lines.append(lines[j].rstrip())
@@ -370,6 +444,9 @@ def parse_text_content(text: str) -> list[ParsedQuestion]:
         if qtype == QuestionType.CHOICE:
             q = parse_choice_question(number, current_section, rest, body_lines)
             if q:
+                active_passage = reading_passage or "\n\n".join(passage_buffer).strip()
+                if is_reading_section(current_section) and active_passage:
+                    q.stem = attach_reading_passage(q.stem, active_passage)
                 questions.append(q)
         else:
             block = [rest, *body_lines]
